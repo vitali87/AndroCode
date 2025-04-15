@@ -92,8 +92,9 @@ class EditorViewModel @Inject constructor(
                 val content = readFileContent(uri)
                 _loadedFileContent.value = content
                 _currentFileContent.value = content
-                _textFieldValue.value = TextFieldValue(content ?: "") // Initialize TextFieldValue
-                _isModified.value = false // Reset modified state on load
+                _textFieldValue.value = TextFieldValue(content) // Initialize TextFieldValue
+                _openedFileUri.value = uri
+                _isModified.value = false // Reset modified state on open
             } catch (e: Exception) {
                 println("Error reading file content for $uri: ${e.message}")
                 _errorLoadingContent.value = "Error loading file: ${e.message}"
@@ -121,33 +122,28 @@ class EditorViewModel @Inject constructor(
      */
     fun saveFile() {
         val uriToSave = _openedFileUri.value
-        val contentToSave = _textFieldValue.value.text
+        val contentToSave = _currentFileContent.value
 
-        if (uriToSave == null || contentToSave == null) {
-            _errorSaving.value = "No file open or no content to save."
-            return
-        }
-
-        if (!_isModified.value) {
-            println("No changes to save for file: $uriToSave")
-            return 
-        }
-
-        viewModelScope.launch {
-            _isSaving.value = true
-            _errorSaving.value = null
-            try {
-                writeFileContent(uriToSave, contentToSave)
-                // Update loaded content state after successful save
-                _loadedFileContent.value = contentToSave
-                _isModified.value = false
-                println("File saved successfully: $uriToSave")
-            } catch (e: Exception) {
-                println("Error saving file $uriToSave: ${e.message}")
-                _errorSaving.value = "Error saving file: ${e.message}"
-            } finally {
-                _isSaving.value = false
+        // Check if there's content and a URI to save to
+        if (uriToSave != null && contentToSave != null) { 
+            viewModelScope.launch {
+                _isSaving.value = true
+                _errorSaving.value = null
+                try {
+                    writeFileContent(uriToSave, contentToSave)
+                    // Update loaded content state after successful save
+                    _loadedFileContent.value = contentToSave
+                    _isModified.value = false
+                    println("File saved successfully: $uriToSave")
+                } catch (e: Exception) {
+                    println("Error saving file $uriToSave: ${e.message}")
+                    _errorSaving.value = "Error saving file: ${e.message}"
+                } finally {
+                    _isSaving.value = false
+                }
             }
+        } else {
+            _errorSaving.value = "No file open or no content to save."
         }
     }
 

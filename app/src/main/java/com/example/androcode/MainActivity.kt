@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items // <-- Import items
 // import androidx.compose.foundation.text.BasicTextField // No longer needed here
 import androidx.compose.material.icons.Icons // Base import
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.automirrored.filled.NoteAdd
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Folder

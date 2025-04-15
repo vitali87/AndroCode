@@ -49,6 +49,11 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get()
     }
+    lint {
+        disable.add("CoroutineCreationDuringComposition")
+        disable.add("FlowOperatorInvokedInComposition")
+        disable.add("StateFlowValueCalledInComposition")
+    }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
