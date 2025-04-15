@@ -1,0 +1,100 @@
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.jetbrains.kotlin.android)
+    alias(libs.plugins.hilt)
+    // alias(libs.plugins.ksp) // Uncomment if using KSP for Hilt
+    kotlin("kapt") // Use kapt OR ksp for Hilt
+}
+
+android {
+    namespace = "com.example.androcode" // Change to your desired package name
+    compileSdk = 34 // Target latest stable SDK
+
+    defaultConfig {
+        applicationId = "com.example.androcode" // Match namespace or customize
+        minSdk = 28 // Consider target audience - API 28+ reasonable for foldables
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0"
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables {
+            useSupportLibrary = true
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true // Enable R8/ProGuard
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+        debug {
+             // Add specific debug configurations if needed
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17 // Use Java 17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17" // Match Java version
+    }
+    buildFeatures {
+        compose = true
+    }
+    composeOptions {
+        kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get()
+    }
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+}
+
+dependencies {
+
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.activity.compose)
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.ui.graphics)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.extended)
+    implementation(libs.google.android.material) // Add traditional Material Components
+
+    // Syntax Highlighting (Placeholder - investigate compatibility/alternatives)
+    // implementation("io.github.kbiakov:codeview-android:1.4.1") // Commented out - build fails on JitPack
+
+    implementation("com.github.qawaz:compose-code-editor:2.0.3") // Revert back to 2.0.3
+
+    // Hilt
+    implementation(libs.hilt.android)
+    kapt(libs.hilt.compiler) // OR ksp(libs.hilt.compiler.ksp)
+
+    // Hilt Navigation Compose
+    implementation(libs.androidx.hilt.navigation.compose)
+
+    // DocumentFile for SAF
+    implementation(libs.androidx.documentfile)
+
+    // Testing
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+// Allow references to generated code (Hilt)
+kapt {
+    correctErrorTypes = true
+}

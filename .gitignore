@@ -1,0 +1,48 @@
+# Android
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+
+# Build files
+build/
+.gradle/
+local.properties
+
+# IDE files
+.idea/
+*.iml
+.DS_Store
+
+# Gradle
+gradle-wrapper.jar
+
+# Secrets (if any)
+secrets.properties
+
+# Sensitive configuration
+*.keystore
+*.jks
+
+# Older generated folders
+bin/
+gen/
+out/
+
+# Android Studio specific
+.navigation/
+captures/
+
+# External native build folder
+.externalNativeBuild/
+
+# Code Coverage
+*.ec
+*.exec
+
+# Crashlytics plugin (optional)
+# com_crashlytics_export_strings.xml
+# crashlytics.properties
+# crashlytics-build.properties
+# fabric.properties
