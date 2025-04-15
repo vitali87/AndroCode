@@ -44,6 +44,10 @@ class FileExplorerViewModel @Inject constructor(
     private val _errorCreatingFile = MutableStateFlow<String?>(null)
     val errorCreatingFile: StateFlow<String?> = _errorCreatingFile.asStateFlow()
 
+    // StateFlow for potential directory selection errors
+    private val _errorSelectingDirectory = MutableStateFlow<String?>(null)
+    val errorSelectingDirectory: StateFlow<String?> = _errorSelectingDirectory.asStateFlow()
+
     fun openDirectoryPicker(launcher: ActivityResultLauncher<Uri?>) {
         // The actual launching logic will be triggered from the Composable
         // using the launcher passed in. This ViewModel might hold the state
@@ -63,6 +67,7 @@ class FileExplorerViewModel @Inject constructor(
                 contentResolver.takePersistableUriPermission(uri, takeFlags)
 
                 // Update ViewModel state
+                _errorSelectingDirectory.value = null // Clear previous selection error
                 _rootDirectoryUri.value = uri // Store the root
                 _currentDirectoryUri.value = uri // Set initial current directory
                 println("Persisted access. Root URI: $uri") // Placeholder
@@ -70,8 +75,9 @@ class FileExplorerViewModel @Inject constructor(
 
             } catch (e: SecurityException) {
                 // Handle error: Could not take persistent permission
-                println("Failed to take persistable permission for URI: $uri - ${e.message}")
-                // TODO: Show error message to the user
+                val errorMsg = "Failed to get permissions for folder: ${e.message}"
+                println(errorMsg) // Keep console log
+                _errorSelectingDirectory.value = errorMsg // Set the new state
                 _rootDirectoryUri.value = null // Clear root on error
                 _currentDirectoryUri.value = null // Clear current on error
                 _fileList.value = emptyList() // Clear list on error

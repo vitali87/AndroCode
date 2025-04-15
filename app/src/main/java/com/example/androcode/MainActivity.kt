@@ -249,6 +249,8 @@ fun FileExplorerView(
     val isLoading by viewModel.isLoading.collectAsState()
     val currentPath by viewModel.currentDirectoryUri.collectAsState()
     val rootUri by viewModel.rootDirectoryUri.collectAsState()
+    val errorCreatingFile by viewModel.errorCreatingFile.collectAsState() // Collect error state
+    val errorSelectingDirectory by viewModel.errorSelectingDirectory.collectAsState() // Collect new error state
 
     // State for controlling dialogs
     var showCreateFileDialog by remember { mutableStateOf(false) }
@@ -269,6 +271,14 @@ fun FileExplorerView(
                 .fillMaxSize()
                 .padding(8.dp)
         ) {
+            // Always-visible Select Root button at the top
+            Button(
+                onClick = { directoryPickerLauncher.launch(null) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Select Root")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween, // Adjust arrangement if needed
@@ -312,10 +322,31 @@ fun FileExplorerView(
                         tint = if (currentPath != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                     )
                 }
+            }
 
-                Button(onClick = { directoryPickerLauncher.launch(null) }) {
-                    Text("Select Root")
-                }
+
+            // Display error message if any
+            if (errorCreatingFile != null) {
+                Text(
+                    text = "Error: $errorCreatingFile",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                HorizontalDivider() // Separator after error
+            }
+
+            // Display directory selection error message if any
+            if (errorSelectingDirectory != null) {
+                Text(
+                    text = "Error: $errorSelectingDirectory",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                HorizontalDivider() // Separator after error
             }
 
             // Display selected path (optional, very basic)
