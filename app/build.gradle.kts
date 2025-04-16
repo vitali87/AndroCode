@@ -72,12 +72,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
-    implementation(libs.google.android.material) // Add traditional Material Components
-
-    // Syntax Highlighting (Placeholder - investigate compatibility/alternatives)
-    // implementation("io.github.kbiakov:codeview-android:1.4.1") // Commented out - build fails on JitPack
-
-    implementation("com.github.qawaz:compose-code-editor:2.0.3") // Revert back to 2.0.3
+    implementation(libs.google.android.material) // Add view-based Material Components
+    implementation(libs.timber)
 
     // Hilt
     implementation(libs.hilt.android)
@@ -88,6 +84,11 @@ dependencies {
 
     // DocumentFile for SAF
     implementation(libs.androidx.documentfile)
+
+    // Compose RichText for syntax highlighting
+    implementation("com.halilibo.compose-richtext:richtext-ui:0.16.0")
+    implementation("com.halilibo.compose-richtext:richtext-ui-material3:0.16.0")
+    implementation("com.halilibo.compose-richtext:richtext-commonmark:0.16.0")
 
     // Testing
     testImplementation(libs.junit)

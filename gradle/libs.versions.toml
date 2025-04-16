@@ -8,6 +8,7 @@ hiltNavigationCompose = "1.2.0" # Add Hilt Navigation Compose version
 ksp = "1.9.23-1.0.19" # Match Kotlin version
 documentfile = "1.0.1" # Add documentfile version
 material = "1.12.0" # Add Material Components version
+timber = "5.0.1" # Add Timber version
 
 # AndroidX & Jetpack
 activityCompose = "1.9.0"
@@ -51,6 +52,7 @@ androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" } # For debug builds
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" } # Add documentfile library
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" } # Add icons
+timber = { group = "com.jakewharton.timber", name = "timber", version.ref = "timber" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "gradle" }

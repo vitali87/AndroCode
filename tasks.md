@@ -24,8 +24,8 @@ Based on the development plan in `plan.md`.
     *   [x] Implement vertical and horizontal scrolling (basic via Compose).
     *   [ ] Add line numbering display.
 *   [x] **[1.4] Basic Syntax Highlighting:**
-    *   [ ] Choose and integrate a syntax highlighting library/mechanism.
-    *   [ ] Implement highlighting for 1-2 initial languages (e.g., Kotlin, Java).
+    *   [x] Choose and integrate a syntax highlighting library/mechanism.
+    *   [x] Implement highlighting for 1-2 initial languages (e.g., Kotlin, Java).
     *   [ ] Test performance with large files.
 *   [x] **[1.5] Local File Access:**
     *   [x] Integrate Android Storage Access Framework (SAF).

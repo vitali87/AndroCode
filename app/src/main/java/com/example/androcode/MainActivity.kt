@@ -73,6 +73,10 @@ import kotlinx.coroutines.launch // <-- Import launch
 import androidx.hilt.navigation.compose.hiltViewModel // <-- Import hiltViewModel
 import androidx.compose.foundation.background // <-- Import background
 import androidx.compose.foundation.layout.fillMaxHeight // <-- Import fillMaxHeight
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily // Needed for Monospace
+import androidx.compose.foundation.rememberScrollState // For scrolling
+import androidx.compose.foundation.verticalScroll // For scrolling
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -182,23 +186,43 @@ fun EditorView(
     val isLoading by editorViewModel.isLoadingContent.collectAsState() // <-- Use isLoadingContent
     val openedFileUri by editorViewModel.openedFileUri.collectAsState()
     val isFindBarVisible by editorViewModel.isFindBarVisible.collectAsState()
+    val scrollState = rememberScrollState() // Add scroll state
 
     Column(modifier = modifier) {
+        // Label showing the file name (replaces TextField label)
+        Text(
+            text = openedFileUri?.lastPathSegment ?: "Editor",
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp) // Add padding
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+
         // Loading indicator or content
         if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
         } else {
-            // Use a simple text field for now, without syntax highlighting
-            OutlinedTextField(
-                value = textState, // Use the TextFieldValue from ViewModel
-                onValueChange = { editorViewModel.onContentChange(it) },
-                modifier = Modifier.fillMaxSize(),
-                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
-                label = { Text(openedFileUri?.lastPathSegment ?: "Editor") }
-            )
+            // --- Scrollable Text Field Area --- 
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f) // Ensure it takes available space before FindBar
+                    .padding(horizontal = 8.dp) // Padding for content
+            ) {
+                OutlinedTextField(
+                    value = textState.text,
+                    onValueChange = { editorViewModel.onTextChanged(it) },
+                    modifier = Modifier
+                        .verticalScroll(scrollState) // Scroll first
+                        .fillMaxSize(), // Then fill the space
+                    textStyle = TextStyle(fontFamily = FontFamily.Monospace),
+                    singleLine = false,
+                    maxLines = Int.MAX_VALUE
+                )
+            }
         }
+        
         // Find Bar (conditionally displayed)
         if (isFindBarVisible) {
             FindBar(
@@ -230,9 +254,12 @@ fun AndroCodeShell(
             editorViewModel = editorViewModel
         )
         // Pane for Editor / Terminal / etc.
-        Box(modifier = Modifier.weight(0.7f)) { // Editor takes 70% width
+        Box(modifier = Modifier.weight(0.7f).fillMaxHeight()) { // Editor takes 70% width AND fills height
             // Display the Editor View, passing the ViewModel
-            EditorView(editorViewModel = editorViewModel) // Correct parameter name here
+            EditorView(
+                modifier = Modifier.fillMaxSize(), // Tell EditorView to fill the Box
+                editorViewModel = editorViewModel
+            )
             // TODO: Add logic to switch between EditorView and TerminalView later
         }
     }

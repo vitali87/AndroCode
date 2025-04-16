@@ -239,6 +239,15 @@ class EditorViewModel @Inject constructor(
     // --- End Find Functionality Methods ---
 
     /**
+     * Call this when the text content changes in the UI editor.
+     */
+    fun onTextChanged(newText: String) {
+        _textFieldValue.value = _textFieldValue.value.copy(text = newText)
+        _currentFileContent.value = newText
+        _isModified.value = _loadedFileContent.value != newText
+    }
+
+    /**
      * Reads the content of a file URI using ContentResolver and DocumentFile.
      * Runs on Dispatchers.IO.
      */
