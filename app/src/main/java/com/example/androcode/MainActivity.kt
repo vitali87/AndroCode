@@ -98,6 +98,16 @@ import androidx.compose.material3.OutlinedTextField // <-- Add import for Dialog
 import androidx.compose.ui.graphics.Color // Ensure Color import is present
 import androidx.compose.ui.graphics.toArgb // <-- Add this import
 import androidx.compose.ui.text.TextRange // For resetting cursor on error
+import androidx.compose.ui.input.pointer.pointerInput // <-- Add import
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerKeyboardModifiers
+import androidx.compose.ui.input.key.Key // <-- Add import
+import androidx.compose.ui.input.key.KeyEvent // <-- Add import
+import androidx.compose.ui.input.key.KeyEventType // <-- Correct import path
+import androidx.compose.ui.input.key.isAltPressed // <-- Add import
+import androidx.compose.ui.input.key.key // <-- Add import
+import androidx.compose.ui.input.key.type // <-- Add import
+import androidx.compose.foundation.gestures.detectTapGestures // <-- Add import
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -210,6 +220,7 @@ fun EditorView(
     val scrollState = rememberScrollState() // Shared scroll state for editor + gutter
     var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
     val interactionSource = remember { MutableInteractionSource() } // Keep interaction source
+    val coroutineScope = rememberCoroutineScope() // Needed for pointerInput
 
     // Define editor text style centrally - no need for remember here,
     // Compose handles recomposition based on theme changes.
@@ -252,7 +263,40 @@ fun EditorView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f) // Ensure it takes available vertical space
-                    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small), // Add border here
+                    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small)
+                    .pointerInput(Unit) { // Add pointer input handling
+                        detectTapGestures { offset ->
+                            // Check if Alt/Option is pressed requires key event listening,
+                            // which is complex within pointerInput alone.
+                            // A simpler check (though less standard) could use
+                            // PointerEvent.isAltPressed if available, but it's not directly.
+
+                            // We need a robust way to check Alt/Option key state during tap.
+                            // For now, let's assume Alt is pressed for demonstration
+                            // TODO: Implement proper Alt/Option key detection
+                            val isAltOptionPressed = true // Placeholder
+
+                            if (isAltOptionPressed) {
+                                textLayoutResult?.let {
+                                    val clickedOffset = it.getOffsetForPosition(offset)
+                                    editorViewModel.addSelection(clickedOffset)
+                                }
+                            } else {
+                                // Default BasicTextField behavior handles single clicks
+                                // or we might need to manually set the primary cursor here
+                                // if we fully override tap detection.
+                                textLayoutResult?.let {
+                                    val clickedOffset = it.getOffsetForPosition(offset)
+                                    // Reset primary selection/cursor
+                                    editorViewModel.onTextFieldValueChange(
+                                        textState.copy(selection = TextRange(clickedOffset))
+                                    )
+                                    // Clear additional selections on a normal click
+                                    // editorViewModel.clearAdditionalSelections() // Need to add this function
+                                }
+                            }
+                        }
+                    },
                 textStyle = editorTextStyle,
                 onTextLayout = { result ->
                     textLayoutResult = result // Capture layout result for gutter

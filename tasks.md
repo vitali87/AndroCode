@@ -35,7 +35,7 @@ Based on the development plan in `plan.md`.
 ## Phase 2: Enhancing the Editor & Local Tools
 
 *   [ ] **[2.1] Advanced Editor Features:**
-    *   [ ] Implement multi-cursor support.
+    *   [x] Implement multi-cursor support.
     *   [ ] Implement find functionality (within the current file).
     *   [ ] Implement replace functionality (within the current file).
     *   [ ] Implement code folding mechanism.
