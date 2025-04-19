@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.Save // Correct import for Save
+import androidx.compose.material.icons.filled.Search // <-- Add import
 import androidx.compose.material3.Button // <-- Import Button
 import androidx.compose.material3.CircularProgressIndicator // <-- Import CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider // <-- Import HorizontalDivider
@@ -98,6 +99,23 @@ import androidx.compose.material3.OutlinedTextField // <-- Add import for Dialog
 import androidx.compose.ui.graphics.Color // Ensure Color import is present
 import androidx.compose.ui.graphics.toArgb // <-- Add this import
 import androidx.compose.ui.text.TextRange // For resetting cursor on error
+import androidx.compose.ui.input.pointer.pointerInput // <-- Add import
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerKeyboardModifiers
+import androidx.compose.ui.input.key.Key // <-- Add import
+import androidx.compose.ui.input.key.KeyEvent // <-- Add import
+import androidx.compose.ui.input.key.KeyEventType // <-- Correct import path
+import androidx.compose.ui.input.key.isAltPressed // <-- Add import
+import androidx.compose.ui.input.key.key // <-- Add import
+import androidx.compose.ui.input.key.type // <-- Add import
+import androidx.compose.foundation.gestures.detectTapGestures // <-- Add import
+import androidx.compose.material.icons.filled.Close // <-- Add import
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.ui.unit.min // Add import
+import androidx.compose.foundation.layout.IntrinsicSize // <-- Add import
+import androidx.compose.foundation.layout.PaddingValues // <-- Add import
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -151,6 +169,15 @@ class MainActivity : ComponentActivity() {
                                         imageVector = Icons.Filled.Save,
                                         contentDescription = "Save File",
                                         tint = if (isModified && openedFileUri != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) // Adjust tint based on enabled state
+                                    )
+                                }
+                                // Find Button
+                                IconButton(
+                                    onClick = { editorViewModel.toggleFindBarVisibility() }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Search,
+                                        contentDescription = "Find in File"
                                     )
                                 }
                                 // Add other actions like settings, etc. later
@@ -210,6 +237,7 @@ fun EditorView(
     val scrollState = rememberScrollState() // Shared scroll state for editor + gutter
     var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
     val interactionSource = remember { MutableInteractionSource() } // Keep interaction source
+    val coroutineScope = rememberCoroutineScope() // Needed for pointerInput
 
     // Define editor text style centrally - no need for remember here,
     // Compose handles recomposition based on theme changes.
@@ -252,7 +280,40 @@ fun EditorView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f) // Ensure it takes available vertical space
-                    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small), // Add border here
+                    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small)
+                    .pointerInput(Unit) { // Add pointer input handling
+                        detectTapGestures { offset ->
+                            // Check if Alt/Option is pressed requires key event listening,
+                            // which is complex within pointerInput alone.
+                            // A simpler check (though less standard) could use
+                            // PointerEvent.isAltPressed if available, but it's not directly.
+
+                            // We need a robust way to check Alt/Option key state during tap.
+                            // For now, let's assume Alt is pressed for demonstration
+                            // TODO: Implement proper Alt/Option key detection
+                            val isAltOptionPressed = true // Placeholder
+
+                            if (isAltOptionPressed) {
+                                textLayoutResult?.let {
+                                    val clickedOffset = it.getOffsetForPosition(offset)
+                                    editorViewModel.addSelection(clickedOffset)
+                                }
+                            } else {
+                                // Default BasicTextField behavior handles single clicks
+                                // or we might need to manually set the primary cursor here
+                                // if we fully override tap detection.
+                                textLayoutResult?.let {
+                                    val clickedOffset = it.getOffsetForPosition(offset)
+                                    // Reset primary selection/cursor
+                                    editorViewModel.onTextFieldValueChange(
+                                        textState.copy(selection = TextRange(clickedOffset))
+                                    )
+                                    // Clear additional selections on a normal click
+                                    // editorViewModel.clearAdditionalSelections() // Need to add this function
+                                }
+                            }
+                        }
+                    },
                 textStyle = editorTextStyle,
                 onTextLayout = { result ->
                     textLayoutResult = result // Capture layout result for gutter
@@ -288,14 +349,13 @@ fun EditorView(
         }
 
         // Placeholder for FindBar if needed later
-        /*
+        val isFindBarVisible by editorViewModel.isFindBarVisible.collectAsState()
         if (isFindBarVisible) {
             FindBar(
                 editorViewModel = editorViewModel,
                 onClose = { editorViewModel.toggleFindBarVisibility() }
             )
         }
-        */
     }
 }
 
@@ -724,9 +784,62 @@ fun FindBar(
     editorViewModel: EditorViewModel,
     onClose: () -> Unit
 ) {
-    // Basic FindBar structure to use parameters and remove warnings
-    Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(4.dp)) {
-        Text("Find: ${editorViewModel.searchQuery.collectAsState().value}", modifier = Modifier.weight(1f))
-        Button(onClick = onClose) { Text("Close") }
+    val searchQuery by editorViewModel.searchQuery.collectAsState()
+    val searchResults by editorViewModel.searchResults.collectAsState()
+    val currentMatchIndex by editorViewModel.currentMatchIndex.collectAsState()
+
+    val hasResults = searchResults.isNotEmpty()
+    val currentMatchDisplay = if (hasResults) currentMatchIndex + 1 else 0
+    val totalMatches = searchResults.size
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shadowElevation = 4.dp, // Add some elevation
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .height(IntrinsicSize.Min), // Ensure row items align height
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { editorViewModel.setSearchQuery(it) },
+                placeholder = { Text("Find") },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+                textStyle = MaterialTheme.typography.bodyMedium, // Smaller text
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                )
+            )
+
+            // Display match count (optional)
+            if (searchQuery.isNotEmpty()) {
+                Text(
+                    text = if (hasResults) "$currentMatchDisplay of $totalMatches" else "0 of 0",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            }
+
+            // Previous Button
+            IconButton(onClick = { editorViewModel.findPrevious() }, enabled = hasResults) {
+                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Previous Match")
+            }
+
+            // Next Button
+            IconButton(onClick = { editorViewModel.findNext() }, enabled = hasResults) {
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Next Match")
+            }
+
+            // Close Button
+            IconButton(onClick = onClose) {
+                Icon(Icons.Filled.Close, contentDescription = "Close Find Bar")
+            }
+        }
     }
 }

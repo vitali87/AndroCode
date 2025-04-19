@@ -59,6 +59,10 @@ class EditorViewModel @Inject constructor(
     private val _textFieldValue = MutableStateFlow(TextFieldValue(""))
     val textFieldValue: StateFlow<TextFieldValue> = _textFieldValue.asStateFlow()
 
+    // State for additional selections (for multi-cursor)
+    private val _additionalSelections = MutableStateFlow<List<TextRange>>(emptyList())
+    val additionalSelections: StateFlow<List<TextRange>> = _additionalSelections.asStateFlow()
+
     // --- Find Functionality State ---
     private val _isFindBarVisible = MutableStateFlow(false)
     val isFindBarVisible: StateFlow<Boolean> = _isFindBarVisible.asStateFlow()
@@ -213,6 +217,7 @@ class EditorViewModel @Inject constructor(
             nextIndex = 0 // Wrap around to the start
         }
         _currentMatchIndex.value = nextIndex
+        highlightCurrentMatch()
         // TODO: Need to trigger UI update to scroll/show the new selection
     }
 
@@ -225,6 +230,7 @@ class EditorViewModel @Inject constructor(
             prevIndex = results.size - 1 // Wrap around to the end
         }
         _currentMatchIndex.value = prevIndex
+        highlightCurrentMatch()
         // TODO: Need to trigger UI update to scroll/show the new selection
     }
 
@@ -233,6 +239,19 @@ class EditorViewModel @Inject constructor(
         _searchResults.value = emptyList()
         _currentMatchIndex.value = -1
         // Keep _isFindBarVisible as is, toggling is handled separately
+    }
+
+    // Function to add a new cursor/selection at a specific offset
+    fun addSelection(offset: Int) {
+        val newSelection = TextRange(offset) // Create a collapsed selection (cursor)
+        // Avoid adding duplicate cursors at the exact same spot
+        if (!_additionalSelections.value.contains(newSelection) &&
+            _textFieldValue.value.selection != newSelection) {
+            _additionalSelections.value = _additionalSelections.value + newSelection
+            // TODO: We might need to update the primary selection too,
+            // depending on the desired multi-cursor interaction model.
+            // For now, just add to the additional list.
+        }
     }
 
     // --- End Find Functionality Methods ---
