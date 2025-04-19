@@ -109,11 +109,10 @@ class EditorViewModel @Inject constructor(
     }
 
     // Call this when the text content changes in the UI
-    fun onContentChange(newValue: TextFieldValue) {
+    // Needs to handle TextFieldValue for BasicTextField
+    fun onTextFieldValueChange(newValue: TextFieldValue) {
         _textFieldValue.value = newValue
-        // Update simple string state as well for potential compatibility/other uses
         _currentFileContent.value = newValue.text
-        // Check if content is modified compared to the initially loaded content
         _isModified.value = _loadedFileContent.value != newValue.text
     }
 
@@ -237,15 +236,6 @@ class EditorViewModel @Inject constructor(
     }
 
     // --- End Find Functionality Methods ---
-
-    /**
-     * Call this when the text content changes in the UI editor.
-     */
-    fun onTextChanged(newText: String) {
-        _textFieldValue.value = _textFieldValue.value.copy(text = newText)
-        _currentFileContent.value = newText
-        _isModified.value = _loadedFileContent.value != newText
-    }
 
     /**
      * Reads the content of a file URI using ContentResolver and DocumentFile.

@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.size // <-- Import size
 import androidx.compose.foundation.layout.width // <-- Import width
 import androidx.compose.foundation.lazy.LazyColumn // <-- Import LazyColumn
 import androidx.compose.foundation.lazy.items // <-- Import items
-// import androidx.compose.foundation.text.BasicTextField // No longer needed here
+import androidx.compose.foundation.text.BasicTextField // <-- Import BasicTextField
 import androidx.compose.material.icons.Icons // Base import
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.NoteAdd
@@ -43,6 +43,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost // <-- Import SnackbarHost
 import androidx.compose.material3.SnackbarHostState // <-- Import SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TabRow // <-- Import TabRow
+import androidx.compose.material3.Tab // <-- Import Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -61,13 +63,25 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.tooling.preview.Preview // <-- Import Preview
 import androidx.compose.ui.unit.dp // <-- Import dp
+import androidx.compose.ui.unit.Dp // <-- Add this import
 import androidx.compose.material3.AlertDialog // <-- Import AlertDialog
 import androidx.compose.material3.TextButton // <-- Import TextButton
 import com.example.androcode.data.FileItem // <-- Import FileItem
 import com.example.androcode.ui.theme.AndroCodeTheme // Adjust import
 import com.example.androcode.viewmodels.FileExplorerViewModel // <-- Import ViewModel
 import com.example.androcode.viewmodels.EditorViewModel // <-- Import EditorViewModel
-import androidx.compose.material3.OutlinedTextField // <-- Import OutlinedTextField
+import androidx.compose.foundation.border // <-- Import border
+import androidx.compose.foundation.interaction.MutableInteractionSource // Required for BasicTextField
+import androidx.compose.material3.LocalTextStyle // Get default text style
+import androidx.compose.material3.TextFieldDefaults // For padding/colors if needed
+import androidx.compose.foundation.Canvas // Import Canvas
+import androidx.compose.ui.graphics.nativeCanvas // Import nativeCanvas
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas // Import drawIntoCanvas
+import android.graphics.Paint // Import Paint for drawing text
+import androidx.compose.ui.platform.LocalDensity // Import LocalDensity
+import android.graphics.Typeface // Required for Paint typeface
+import androidx.compose.runtime.derivedStateOf // For efficient calculation
+import androidx.compose.ui.draw.clipToBounds // Ensure gutter doesn't draw over border
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch // <-- Import launch
 import androidx.hilt.navigation.compose.hiltViewModel // <-- Import hiltViewModel
@@ -77,6 +91,13 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily // Needed for Monospace
 import androidx.compose.foundation.rememberScrollState // For scrolling
 import androidx.compose.foundation.verticalScroll // For scrolling
+import androidx.compose.foundation.ScrollState // Explicit import
+import androidx.compose.ui.text.TextLayoutResult // Required for line height calculations
+import androidx.compose.ui.unit.sp // For explicit text size
+import androidx.compose.material3.OutlinedTextField // <-- Add import for Dialog usage
+import androidx.compose.ui.graphics.Color // Ensure Color import is present
+import androidx.compose.ui.graphics.toArgb // <-- Add this import
+import androidx.compose.ui.text.TextRange // For resetting cursor on error
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -177,58 +198,182 @@ fun FileListItem(fileItem: FileItem, onClick: (FileItem) -> Unit) {
 }
 
 // --- Moved EditorView to top-level --- //
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditorView(
     modifier: Modifier = Modifier,
     editorViewModel: EditorViewModel // Pass the whole ViewModel
 ) {
     val textState by editorViewModel.textFieldValue.collectAsState()
-    val isLoading by editorViewModel.isLoadingContent.collectAsState() // <-- Use isLoadingContent
+    val isLoading by editorViewModel.isLoadingContent.collectAsState()
     val openedFileUri by editorViewModel.openedFileUri.collectAsState()
-    val isFindBarVisible by editorViewModel.isFindBarVisible.collectAsState()
-    val scrollState = rememberScrollState() // Add scroll state
+    val scrollState = rememberScrollState() // Shared scroll state for editor + gutter
+    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val interactionSource = remember { MutableInteractionSource() } // Keep interaction source
+
+    // Define editor text style centrally - no need for remember here,
+    // Compose handles recomposition based on theme changes.
+    val editorTextStyle = TextStyle(
+        fontFamily = FontFamily.Monospace,
+        fontSize = 14.sp,
+        color = MaterialTheme.colorScheme.onSurface // Directly use theme color
+    )
 
     Column(modifier = modifier) {
-        // Label showing the file name (replaces TextField label)
         Text(
             text = openedFileUri?.lastPathSegment ?: "Editor",
             style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp) // Add padding
+            modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp)
         )
         Spacer(modifier = Modifier.height(4.dp))
 
-        // Loading indicator or content
         if (isLoading) {
             Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
         } else {
-            // --- Scrollable Text Field Area --- 
-            Box(
+            // Core editor layout using BasicTextField and decorationBox
+            BasicTextField(
+                value = textState,
+                onValueChange = {
+                    // Basic check to prevent potential crash with invalid TextLayoutResult
+                    // In a real scenario, more robust error handling might be needed
+                    if (it.text.length <= 100000) { // Arbitrary limit, adjust as needed
+                         editorViewModel.onTextFieldValueChange(it)
+                    } else {
+                        // Handle oversized text - perhaps show a message or trim
+                        // For now, just reset to previous valid state to avoid crash
+                        editorViewModel.onTextFieldValueChange(
+                            textState.copy(text = textState.text.substring(0, 100000))
+                        )
+                         println("Text length limit reached.") // Log or show snackbar
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f) // Ensure it takes available space before FindBar
-                    .padding(horizontal = 8.dp) // Padding for content
-            ) {
-                OutlinedTextField(
-                    value = textState.text,
-                    onValueChange = { editorViewModel.onTextChanged(it) },
-                    modifier = Modifier
-                        .verticalScroll(scrollState) // Scroll first
-                        .fillMaxSize(), // Then fill the space
-                    textStyle = TextStyle(fontFamily = FontFamily.Monospace),
-                    singleLine = false,
-                    maxLines = Int.MAX_VALUE
-                )
-            }
+                    .weight(1f) // Ensure it takes available vertical space
+                    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small), // Add border here
+                textStyle = editorTextStyle,
+                onTextLayout = { result ->
+                    textLayoutResult = result // Capture layout result for gutter
+                },
+                interactionSource = interactionSource, // Pass interaction source
+                decorationBox = { innerTextField -> // The crucial decorationBox lambda
+                    Row(
+                        Modifier
+                            // .fillMaxSize() // Let the outer BasicTextField modifier handle size
+                            .padding(horizontal = 8.dp, vertical = 4.dp) // Padding inside the border
+                    ) {
+                        // Line Number Gutter Composable
+                        LineNumberGutterInternal(
+                            modifier = Modifier
+                                .padding(end = 8.dp) // Space between gutter and text
+                                .fillMaxHeight(), // Gutter should fill height
+                            textLayoutResult = textLayoutResult,
+                            textStyle = editorTextStyle, // Pass text style for metrics
+                            scrollState = scrollState // Pass the *shared* scroll state
+                        )
+
+                        // The actual text field content, wrapped for scrolling
+                        Box(modifier = Modifier
+                            .weight(1f) // Take remaining width
+                            .verticalScroll(scrollState) // Use the *shared* scroll state
+                            .clipToBounds() // Clip content within the Box
+                        ) {
+                            innerTextField() // **MUST call innerTextField() here**
+                        }
+                    }
+                }
+            )
         }
-        
-        // Find Bar (conditionally displayed)
+
+        // Placeholder for FindBar if needed later
+        /*
         if (isFindBarVisible) {
             FindBar(
-                editorViewModel = editorViewModel, // Correct parameter name here
+                editorViewModel = editorViewModel,
                 onClose = { editorViewModel.toggleFindBarVisibility() }
             )
+        }
+        */
+    }
+}
+
+// --- Refactored LineNumberGutterInternal ---
+@Composable
+private fun LineNumberGutterInternal(
+    modifier: Modifier = Modifier,
+    textLayoutResult: TextLayoutResult?,
+    textStyle: TextStyle, // Receive textStyle for accurate metrics
+    scrollState: ScrollState // Receive the *shared* scroll state
+) {
+    val density = LocalDensity.current
+    val gutterColor = MaterialTheme.colorScheme.outline
+
+    // --- Calculate context-dependent values DIRECTLY (no unnecessary remember) --- //
+    val textSizePx: Float
+    val lineNumPaddingPx: Float
+    val gutterPaddingPx: Float
+    val gutterWidthDp: Dp
+    with(density) {
+        textSizePx = textStyle.fontSize.toPx()
+        lineNumPaddingPx = 4.dp.toPx()
+        gutterPaddingPx = 8.dp.toPx()
+    }
+    val gutterColorArgb = gutterColor.toArgb()
+
+    val maxLineNumberText = remember(textLayoutResult?.lineCount) {
+        (textLayoutResult?.lineCount ?: 1).toString()
+    }
+
+    // Remember Paint object, keyed by primitive values
+    val lineNumberPaint = remember(textSizePx, gutterColorArgb) {
+        Paint().apply {
+            isAntiAlias = true
+            textAlign = android.graphics.Paint.Align.RIGHT
+            typeface = Typeface.MONOSPACE
+            textSize = textSizePx
+            color = gutterColorArgb
+        }
+    }
+
+    // Calculate final gutter width in Dp, using the remembered Paint
+    // This calculation is outside remember, using density directly
+    with(density) {
+         gutterWidthDp = (lineNumberPaint.measureText(maxLineNumberText) + gutterPaddingPx).toDp()
+    }
+
+    Canvas(
+        modifier = modifier
+            .width(gutterWidthDp) // Use calculated Dp width
+            .clipToBounds()
+    ) {
+        // Use pre-calculated pixel padding for drawing text position
+        val lineNumDrawX = size.width - lineNumPaddingPx
+
+        drawIntoCanvas { canvas ->
+            textLayoutResult?.let { layoutResult ->
+                val lineCount = layoutResult.lineCount
+                val fontMetrics = lineNumberPaint.fontMetrics // Get metrics once
+
+                for (lineIndex in 0 until lineCount) {
+                    val lineNum = (lineIndex + 1).toString()
+                    val lineTop = layoutResult.getLineTop(lineIndex)
+                    val lineBottom = layoutResult.getLineBottom(lineIndex)
+
+                    // Center the text vertically
+                    val verticalCenterOffset = (lineBottom - lineTop - (fontMetrics.descent - fontMetrics.ascent)) / 2f
+                    val yPos = lineTop + verticalCenterOffset - fontMetrics.ascent
+
+                    // Draw the line number
+                    canvas.nativeCanvas.drawText(
+                        lineNum,
+                        lineNumDrawX, // Use pre-calculated X position
+                        yPos,
+                        lineNumberPaint
+                    )
+                }
+            }
         }
     }
 }
@@ -249,18 +394,19 @@ fun AndroCodeShell(
 ) {
     Row(modifier = modifier.fillMaxSize()) {
         FileExplorerView(
-            modifier = Modifier.weight(0.3f), // File Explorer takes 30% width
+            modifier = Modifier.weight(0.2f).fillMaxHeight(),
             viewModel = fileExplorerViewModel,
             editorViewModel = editorViewModel
         )
-        // Pane for Editor / Terminal / etc.
-        Box(modifier = Modifier.weight(0.7f).fillMaxHeight()) { // Editor takes 70% width AND fills height
-            // Display the Editor View, passing the ViewModel
+        Column(modifier = Modifier.weight(0.8f).fillMaxSize()) {
             EditorView(
-                modifier = Modifier.fillMaxSize(), // Tell EditorView to fill the Box
+                modifier = Modifier.weight(0.7f).fillMaxWidth(),
                 editorViewModel = editorViewModel
             )
-            // TODO: Add logic to switch between EditorView and TerminalView later
+            HorizontalDivider() // <-- Add divider here
+            TerminalView(
+                modifier = Modifier.weight(0.3f).fillMaxWidth()
+            )
         }
     }
 }
@@ -533,28 +679,7 @@ fun CreateItemDialog(
 @Preview(showBackground = true)
 @Composable
 fun AndroCodePreview() {
-    AndroCodeTheme {
-        // --- Simplified Preview --- 
-        // Avoid complex ViewModel setup for preview, show basic structure
-        Row(Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .weight(0.3f)
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-            ) {
-                Text("File Explorer Area", modifier = Modifier.align(Alignment.Center))
-            }
-            Box(
-                modifier = Modifier
-                    .weight(0.7f)
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.background)
-            ) {
-                Text("Editor Area", modifier = Modifier.align(Alignment.Center))
-            }
-        }
-    }
+    Text("AndroCode Preview (Editor needs ViewModel)")
 }
 
 // Preview for FileListItem (if needed, ensure FileItem is accessible or mocked)
@@ -591,19 +716,7 @@ fun FileExplorerViewPreview() {
 @Preview(showBackground = true, widthDp = 500)
 @Composable
 fun EditorViewPreview() {
-    // Simplified Preview
-    AndroCodeTheme {
-        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-            Text("Editor View Preview", modifier = Modifier.align(Alignment.Center))
-            // Basic TextField if layout/appearance testing is needed
-            OutlinedTextField(
-                value = "Sample code...",
-                onValueChange = {},
-                modifier = Modifier.fillMaxSize().padding(8.dp),
-                label = { Text("sample.kt") }
-            )
-        }
-    }
+    Text("Editor Preview needs ViewModel")
 }
 
 @Composable

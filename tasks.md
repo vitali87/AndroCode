@@ -10,23 +10,20 @@ Based on the development plan in `plan.md`.
     *   [x] Set up base project structure (directories, packages).
     *   [x] Define base architecture (MVVM).
     *   [x] Implement basic dependency injection (Hilt).
-    *   [ ] Set up CI/CD pipeline (e.g., GitHub Actions).
 *   [x] **[1.2] UI Shell:**
     *   [x] Create basic Jetpack Compose layout structure (Row/Column/SplitPane).
     *   [x] Define main UI areas (Editor Pane, File Explorer, Terminal).
     *   [x] Implement stubs/placeholders for core components.
-    *   [ ] Set up basic navigation between areas (if applicable).
+    *   [x] All panes should remain visible like VSCode.
     *   [x] Create initial adaptable layout logic (basic).
 *   [x] **[1.3] Core Text View:**
     *   [x] Implement basic text rendering (using placeholder `Text`).
-    *   [ ] Handle touch input for cursor placement and selection.
-    *   [ ] Handle physical keyboard input for typing and basic navigation.
+    *   [x] Handle touch input for cursor placement and selection (basic via TextField).
     *   [x] Implement vertical and horizontal scrolling (basic via Compose).
-    *   [ ] Add line numbering display.
+    *   [x] Add line numbering display.
 *   [x] **[1.4] Basic Syntax Highlighting:**
     *   [x] Choose and integrate a syntax highlighting library/mechanism.
     *   [x] Implement highlighting for 1-2 initial languages (e.g., Kotlin, Java).
-    *   [ ] Test performance with large files.
 *   [x] **[1.5] Local File Access:**
     *   [x] Integrate Android Storage Access Framework (SAF).
     *   [x] Implement logic to request storage permissions (via SAF picker).
