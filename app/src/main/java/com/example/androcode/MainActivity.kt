@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.Save // Correct import for Save
+import androidx.compose.material.icons.filled.Search // <-- Add import
 import androidx.compose.material3.Button // <-- Import Button
 import androidx.compose.material3.CircularProgressIndicator // <-- Import CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider // <-- Import HorizontalDivider
@@ -91,7 +92,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily // Needed for Monospace
 import androidx.compose.foundation.rememberScrollState // For scrolling
 import androidx.compose.foundation.verticalScroll // For scrolling
-import androidx.compose.foundation.ScrollState // Explicit import
 import androidx.compose.ui.text.TextLayoutResult // Required for line height calculations
 import androidx.compose.ui.unit.sp // For explicit text size
 import androidx.compose.material3.OutlinedTextField // <-- Add import for Dialog usage
@@ -108,6 +108,27 @@ import androidx.compose.ui.input.key.isAltPressed // <-- Add import
 import androidx.compose.ui.input.key.key // <-- Add import
 import androidx.compose.ui.input.key.type // <-- Add import
 import androidx.compose.foundation.gestures.detectTapGestures // <-- Add import
+import androidx.compose.material.icons.filled.Close // <-- Add import
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.ui.unit.min // Add import
+import androidx.compose.foundation.layout.IntrinsicSize // <-- Add import
+import androidx.compose.foundation.layout.PaddingValues // <-- Add import
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors // If customizing selection
+import androidx.compose.foundation.text.selection.TextSelectionColors // If customizing selection
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.ScrollState // Ensure ScrollState is imported
+import androidx.compose.runtime.remember // Ensure remember is imported
+import androidx.compose.runtime.mutableStateOf // Ensure mutableStateOf is imported
+import androidx.compose.runtime.getValue // Ensure getValue is imported
+import androidx.compose.runtime.setValue // Ensure setValue is imported
+import androidx.compose.material.icons.filled.FindReplace // <-- Import FindReplace
+import androidx.compose.material3.ButtonDefaults // <-- Import for button colors/padding
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -161,6 +182,15 @@ class MainActivity : ComponentActivity() {
                                         imageVector = Icons.Filled.Save,
                                         contentDescription = "Save File",
                                         tint = if (isModified && openedFileUri != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) // Adjust tint based on enabled state
+                                    )
+                                }
+                                // Find Button
+                                IconButton(
+                                    onClick = { editorViewModel.toggleFindBarVisibility() }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Search,
+                                        contentDescription = "Find in File"
                                     )
                                 }
                                 // Add other actions like settings, etc. later
@@ -221,6 +251,7 @@ fun EditorView(
     var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
     val interactionSource = remember { MutableInteractionSource() } // Keep interaction source
     val coroutineScope = rememberCoroutineScope() // Needed for pointerInput
+    var isAltKeyPressed by remember { mutableStateOf(false) } // State for Alt key
 
     // Define editor text style centrally - no need for remember here,
     // Compose handles recomposition based on theme changes.
@@ -229,6 +260,27 @@ fun EditorView(
         fontSize = 14.sp,
         color = MaterialTheme.colorScheme.onSurface // Directly use theme color
     )
+
+    // Effect to scroll to the selection when triggered by the ViewModel
+    LaunchedEffect(Unit) {
+        editorViewModel.scrollToSelectionEvent.collect {
+            coroutineScope.launch {
+                textLayoutResult?.let { layoutResult ->
+                    val selection = textState.selection
+                    if (selection.collapsed) { // Only scroll if it's a cursor
+                        val cursorRect = layoutResult.getCursorRect(selection.start)
+                        // Basic scroll logic: scroll vertically to bring the cursor into view
+                        // More sophisticated logic could check if it's already visible.
+                        val line = layoutResult.getLineForOffset(selection.start)
+                        val lineTop = layoutResult.getLineTop(line)
+                        // Approximate scroll position - might need adjustment
+                        scrollState.animateScrollTo(lineTop.toInt())
+                    }
+                    // TODO: Add logic for non-collapsed selections if needed (e.g., scroll to start)
+                }
+            }
+        }
+    }
 
     Column(modifier = modifier) {
         Text(
@@ -264,42 +316,42 @@ fun EditorView(
                     .fillMaxWidth()
                     .weight(1f) // Ensure it takes available vertical space
                     .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small)
-                    .pointerInput(Unit) { // Add pointer input handling
+                    .onKeyEvent { keyEvent: KeyEvent -> // Handle key events for Alt
+                        if (keyEvent.key == Key.AltLeft || keyEvent.key == Key.AltRight) {
+                            isAltKeyPressed = keyEvent.type == KeyEventType.KeyDown
+                            true // Consume the event
+                        } else {
+                            false // Don't consume other key events
+                        }
+                    }
+                    .pointerInput(Unit) { // Add pointer input handling AFTER onKeyEvent
                         detectTapGestures { offset ->
-                            // Check if Alt/Option is pressed requires key event listening,
-                            // which is complex within pointerInput alone.
-                            // A simpler check (though less standard) could use
-                            // PointerEvent.isAltPressed if available, but it's not directly.
-
-                            // We need a robust way to check Alt/Option key state during tap.
-                            // For now, let's assume Alt is pressed for demonstration
-                            // TODO: Implement proper Alt/Option key detection
-                            val isAltOptionPressed = true // Placeholder
-
-                            if (isAltOptionPressed) {
-                                textLayoutResult?.let {
-                                    val clickedOffset = it.getOffsetForPosition(offset)
+                            // Use the state updated by onKeyEvent
+                            if (isAltKeyPressed) {
+                                textLayoutResult?.let { layoutResult ->
+                                    val clickedOffset = layoutResult.getOffsetForPosition(offset)
                                     editorViewModel.addSelection(clickedOffset)
                                 }
                             } else {
-                                // Default BasicTextField behavior handles single clicks
-                                // or we might need to manually set the primary cursor here
-                                // if we fully override tap detection.
-                                textLayoutResult?.let {
-                                    val clickedOffset = it.getOffsetForPosition(offset)
-                                    // Reset primary selection/cursor
-                                    editorViewModel.onTextFieldValueChange(
-                                        textState.copy(selection = TextRange(clickedOffset))
-                                    )
-                                    // Clear additional selections on a normal click
-                                    // editorViewModel.clearAdditionalSelections() // Need to add this function
+                                // Let BasicTextField handle primary cursor placement on its own
+                                // by default, but clear additional selections.
+                                textLayoutResult?.let { layoutResult ->
+                                     val clickedOffset = layoutResult.getOffsetForPosition(offset)
+                                     // Update TextFieldValue to set the primary cursor
+                                     // This might override BasicTextField's internal handling,
+                                     // ensure this interaction is desired.
+                                     editorViewModel.onTextFieldValueChange(
+                                         textState.copy(selection = TextRange(clickedOffset))
+                                     )
+                                     // Clear additional selections on a normal click
+                                     editorViewModel.clearAdditionalSelections() // Now implemented
                                 }
                             }
                         }
                     },
                 textStyle = editorTextStyle,
                 onTextLayout = { result ->
-                    textLayoutResult = result // Capture layout result for gutter
+                    textLayoutResult = result // Capture layout result for gutter and scrolling
                 },
                 interactionSource = interactionSource, // Pass interaction source
                 decorationBox = { innerTextField -> // The crucial decorationBox lambda
@@ -332,14 +384,13 @@ fun EditorView(
         }
 
         // Placeholder for FindBar if needed later
-        /*
+        val isFindBarVisible by editorViewModel.isFindBarVisible.collectAsState()
         if (isFindBarVisible) {
             FindBar(
                 editorViewModel = editorViewModel,
                 onClose = { editorViewModel.toggleFindBarVisibility() }
             )
         }
-        */
     }
 }
 
@@ -768,9 +819,99 @@ fun FindBar(
     editorViewModel: EditorViewModel,
     onClose: () -> Unit
 ) {
-    // Basic FindBar structure to use parameters and remove warnings
-    Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(4.dp)) {
-        Text("Find: ${editorViewModel.searchQuery.collectAsState().value}", modifier = Modifier.weight(1f))
-        Button(onClick = onClose) { Text("Close") }
+    val searchQuery by editorViewModel.searchQuery.collectAsState()
+    val replaceQuery by editorViewModel.replaceQuery.collectAsState() // Collect replace query
+    val searchResults by editorViewModel.searchResults.collectAsState()
+    val currentMatchIndex by editorViewModel.currentMatchIndex.collectAsState()
+
+    val hasResults = searchResults.isNotEmpty()
+    val currentMatchDisplay = if (hasResults) currentMatchIndex + 1 else 0
+    val totalMatches = searchResults.size
+    val canReplace = hasResults && currentMatchIndex != -1
+    val canReplaceAll = hasResults
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shadowElevation = 4.dp, // Add some elevation
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) { // Use Column
+            // --- Find Row ---
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp) // Reduced spacing
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { editorViewModel.setSearchQuery(it) },
+                    placeholder = { Text("Find") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    textStyle = MaterialTheme.typography.bodyMedium // Smaller text
+                )
+
+                // Display match count
+                if (searchQuery.isNotEmpty()) {
+                    Text(
+                        text = if (hasResults) "$currentMatchDisplay/$totalMatches" else "0/0", // Shorter format
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 2.dp)
+                    )
+                }
+
+                // Previous Button
+                IconButton(onClick = { editorViewModel.findPrevious() }, enabled = hasResults) {
+                    Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Previous Match")
+                }
+
+                // Next Button
+                IconButton(onClick = { editorViewModel.findNext() }, enabled = hasResults) {
+                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Next Match")
+                }
+
+                // Close Button
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close Find/Replace Bar")
+                }
+            }
+            // --- Replace Row ---
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                 modifier = Modifier
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                OutlinedTextField(
+                    value = replaceQuery,
+                    onValueChange = { editorViewModel.setReplaceQuery(it) },
+                    placeholder = { Text("Replace with") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    textStyle = MaterialTheme.typography.bodyMedium
+                )
+
+                // Replace Button (Current)
+                Button(
+                    onClick = { editorViewModel.replaceCurrent() },
+                    enabled = canReplace,
+                    contentPadding = PaddingValues(horizontal = 8.dp) // Less padding
+                    // Consider adding an icon here e.g., Icons.Filled.FindReplace
+                ) {
+                    Text("Replace", style = MaterialTheme.typography.labelSmall) // Smaller text
+                }
+
+                // Replace All Button
+                 Button(
+                    onClick = { editorViewModel.replaceAll() },
+                    enabled = canReplaceAll,
+                    contentPadding = PaddingValues(horizontal = 8.dp)
+                ) {
+                    Text("All", style = MaterialTheme.typography.labelSmall) // Smaller text
+                }
+            }
+        }
     }
 }

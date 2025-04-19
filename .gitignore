@@ -16,7 +16,6 @@ local.properties
 .DS_Store
 
 # Gradle
-gradle-wrapper.jar
 
 # Secrets (if any)
 secrets.properties
