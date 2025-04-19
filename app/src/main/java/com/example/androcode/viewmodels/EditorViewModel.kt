@@ -18,6 +18,8 @@ import java.io.OutputStreamWriter
 import javax.inject.Inject
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.TextRange
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 @HiltViewModel
 class EditorViewModel @Inject constructor(
@@ -62,6 +64,10 @@ class EditorViewModel @Inject constructor(
     // State for additional selections (for multi-cursor)
     private val _additionalSelections = MutableStateFlow<List<TextRange>>(emptyList())
     val additionalSelections: StateFlow<List<TextRange>> = _additionalSelections.asStateFlow()
+
+    // SharedFlow to signal the UI to scroll to the current selection
+    private val _scrollToSelectionEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val scrollToSelectionEvent = _scrollToSelectionEvent.asSharedFlow()
 
     // --- Find Functionality State ---
     private val _isFindBarVisible = MutableStateFlow(false)
@@ -189,6 +195,10 @@ class EditorViewModel @Inject constructor(
         _searchResults.value = results
         _currentMatchIndex.value = if (results.isNotEmpty()) 0 else -1
         highlightCurrentMatch()
+        // After initially performing search, try to scroll to the first match
+        if (_currentMatchIndex.value != -1) {
+            _scrollToSelectionEvent.tryEmit(Unit)
+        }
     }
 
     private fun highlightCurrentMatch() {
@@ -206,6 +216,8 @@ class EditorViewModel @Inject constructor(
                 selection = TextRange.Zero
             )
         }
+        // Always try to signal scroll after highlighting, even if selection cleared
+        _scrollToSelectionEvent.tryEmit(Unit)
     }
 
     fun findNext() {
@@ -219,6 +231,7 @@ class EditorViewModel @Inject constructor(
         _currentMatchIndex.value = nextIndex
         highlightCurrentMatch()
         // TODO: Need to trigger UI update to scroll/show the new selection
+        // Scrolling is now triggered by highlightCurrentMatch via SharedFlow
     }
 
     fun findPrevious() {
@@ -232,6 +245,7 @@ class EditorViewModel @Inject constructor(
         _currentMatchIndex.value = prevIndex
         highlightCurrentMatch()
         // TODO: Need to trigger UI update to scroll/show the new selection
+        // Scrolling is now triggered by highlightCurrentMatch via SharedFlow
     }
 
     private fun resetSearchState() {
@@ -248,10 +262,14 @@ class EditorViewModel @Inject constructor(
         if (!_additionalSelections.value.contains(newSelection) &&
             _textFieldValue.value.selection != newSelection) {
             _additionalSelections.value = _additionalSelections.value + newSelection
-            // TODO: We might need to update the primary selection too,
-            // depending on the desired multi-cursor interaction model.
-            // For now, just add to the additional list.
         }
+    }
+
+    /**
+     * Clears all selections except the primary one managed by TextFieldValue.
+     */
+    fun clearAdditionalSelections() {
+        _additionalSelections.value = emptyList()
     }
 
     // --- End Find Functionality Methods ---

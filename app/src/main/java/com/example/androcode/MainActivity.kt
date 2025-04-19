@@ -92,7 +92,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily // Needed for Monospace
 import androidx.compose.foundation.rememberScrollState // For scrolling
 import androidx.compose.foundation.verticalScroll // For scrolling
-import androidx.compose.foundation.ScrollState // Explicit import
 import androidx.compose.ui.text.TextLayoutResult // Required for line height calculations
 import androidx.compose.ui.unit.sp // For explicit text size
 import androidx.compose.material3.OutlinedTextField // <-- Add import for Dialog usage
@@ -116,6 +115,18 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.ui.unit.min // Add import
 import androidx.compose.foundation.layout.IntrinsicSize // <-- Add import
 import androidx.compose.foundation.layout.PaddingValues // <-- Add import
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors // If customizing selection
+import androidx.compose.foundation.text.selection.TextSelectionColors // If customizing selection
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.ScrollState // Ensure ScrollState is imported
+import androidx.compose.runtime.remember // Ensure remember is imported
+import androidx.compose.runtime.mutableStateOf // Ensure mutableStateOf is imported
+import androidx.compose.runtime.getValue // Ensure getValue is imported
+import androidx.compose.runtime.setValue // Ensure setValue is imported
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -238,6 +249,7 @@ fun EditorView(
     var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
     val interactionSource = remember { MutableInteractionSource() } // Keep interaction source
     val coroutineScope = rememberCoroutineScope() // Needed for pointerInput
+    var isAltKeyPressed by remember { mutableStateOf(false) } // State for Alt key
 
     // Define editor text style centrally - no need for remember here,
     // Compose handles recomposition based on theme changes.
@@ -246,6 +258,27 @@ fun EditorView(
         fontSize = 14.sp,
         color = MaterialTheme.colorScheme.onSurface // Directly use theme color
     )
+
+    // Effect to scroll to the selection when triggered by the ViewModel
+    LaunchedEffect(Unit) {
+        editorViewModel.scrollToSelectionEvent.collect {
+            coroutineScope.launch {
+                textLayoutResult?.let { layoutResult ->
+                    val selection = textState.selection
+                    if (selection.collapsed) { // Only scroll if it's a cursor
+                        val cursorRect = layoutResult.getCursorRect(selection.start)
+                        // Basic scroll logic: scroll vertically to bring the cursor into view
+                        // More sophisticated logic could check if it's already visible.
+                        val line = layoutResult.getLineForOffset(selection.start)
+                        val lineTop = layoutResult.getLineTop(line)
+                        // Approximate scroll position - might need adjustment
+                        scrollState.animateScrollTo(lineTop.toInt())
+                    }
+                    // TODO: Add logic for non-collapsed selections if needed (e.g., scroll to start)
+                }
+            }
+        }
+    }
 
     Column(modifier = modifier) {
         Text(
@@ -281,42 +314,42 @@ fun EditorView(
                     .fillMaxWidth()
                     .weight(1f) // Ensure it takes available vertical space
                     .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small)
-                    .pointerInput(Unit) { // Add pointer input handling
+                    .onKeyEvent { keyEvent: KeyEvent -> // Handle key events for Alt
+                        if (keyEvent.key == Key.AltLeft || keyEvent.key == Key.AltRight) {
+                            isAltKeyPressed = keyEvent.type == KeyEventType.KeyDown
+                            true // Consume the event
+                        } else {
+                            false // Don't consume other key events
+                        }
+                    }
+                    .pointerInput(Unit) { // Add pointer input handling AFTER onKeyEvent
                         detectTapGestures { offset ->
-                            // Check if Alt/Option is pressed requires key event listening,
-                            // which is complex within pointerInput alone.
-                            // A simpler check (though less standard) could use
-                            // PointerEvent.isAltPressed if available, but it's not directly.
-
-                            // We need a robust way to check Alt/Option key state during tap.
-                            // For now, let's assume Alt is pressed for demonstration
-                            // TODO: Implement proper Alt/Option key detection
-                            val isAltOptionPressed = true // Placeholder
-
-                            if (isAltOptionPressed) {
-                                textLayoutResult?.let {
-                                    val clickedOffset = it.getOffsetForPosition(offset)
+                            // Use the state updated by onKeyEvent
+                            if (isAltKeyPressed) {
+                                textLayoutResult?.let { layoutResult ->
+                                    val clickedOffset = layoutResult.getOffsetForPosition(offset)
                                     editorViewModel.addSelection(clickedOffset)
                                 }
                             } else {
-                                // Default BasicTextField behavior handles single clicks
-                                // or we might need to manually set the primary cursor here
-                                // if we fully override tap detection.
-                                textLayoutResult?.let {
-                                    val clickedOffset = it.getOffsetForPosition(offset)
-                                    // Reset primary selection/cursor
-                                    editorViewModel.onTextFieldValueChange(
-                                        textState.copy(selection = TextRange(clickedOffset))
-                                    )
-                                    // Clear additional selections on a normal click
-                                    // editorViewModel.clearAdditionalSelections() // Need to add this function
+                                // Let BasicTextField handle primary cursor placement on its own
+                                // by default, but clear additional selections.
+                                textLayoutResult?.let { layoutResult ->
+                                     val clickedOffset = layoutResult.getOffsetForPosition(offset)
+                                     // Update TextFieldValue to set the primary cursor
+                                     // This might override BasicTextField's internal handling,
+                                     // ensure this interaction is desired.
+                                     editorViewModel.onTextFieldValueChange(
+                                         textState.copy(selection = TextRange(clickedOffset))
+                                     )
+                                     // Clear additional selections on a normal click
+                                     editorViewModel.clearAdditionalSelections() // Now implemented
                                 }
                             }
                         }
                     },
                 textStyle = editorTextStyle,
                 onTextLayout = { result ->
-                    textLayoutResult = result // Capture layout result for gutter
+                    textLayoutResult = result // Capture layout result for gutter and scrolling
                 },
                 interactionSource = interactionSource, // Pass interaction source
                 decorationBox = { innerTextField -> // The crucial decorationBox lambda
