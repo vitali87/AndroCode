@@ -37,7 +37,7 @@ Based on the development plan in `plan.md`.
 *   [ ] **[2.1] Advanced Editor Features:**
     *   [x] Implement multi-cursor support.
     *   [x] Implement find functionality (within the current file).
-    *   [ ] Implement replace functionality (within the current file).
+    *   [x] Implement replace functionality (within the current file).
     *   [ ] Implement code folding mechanism.
     *   [ ] Add bracket matching visualization.
     *   [ ] Add indentation guides.

@@ -82,7 +82,11 @@ class EditorViewModel @Inject constructor(
     private val _currentMatchIndex = MutableStateFlow(-1) // -1 means no current selection
     val currentMatchIndex: StateFlow<Int> = _currentMatchIndex.asStateFlow()
 
-    // --- End Find Functionality State ---
+    // --- Replace Functionality State ---
+    private val _replaceQuery = MutableStateFlow("")
+    val replaceQuery: StateFlow<String> = _replaceQuery.asStateFlow()
+
+    // --- End Find/Replace Functionality State ---
 
     /**
      * Attempts to open and read the content of a file identified by its URI.
@@ -199,6 +203,7 @@ class EditorViewModel @Inject constructor(
         if (_currentMatchIndex.value != -1) {
             _scrollToSelectionEvent.tryEmit(Unit)
         }
+        _additionalSelections.value = emptyList()
     }
 
     private fun highlightCurrentMatch() {
@@ -273,6 +278,91 @@ class EditorViewModel @Inject constructor(
     }
 
     // --- End Find Functionality Methods ---
+
+    // --- Replace Functionality Methods ---
+    fun setReplaceQuery(query: String) {
+        _replaceQuery.value = query
+    }
+
+    fun replaceCurrent() {
+        val results = _searchResults.value
+        val index = _currentMatchIndex.value
+        val replaceWith = _replaceQuery.value
+        val currentText = _textFieldValue.value.text
+
+        if (index in results.indices) {
+            val range = results[index]
+            val before = currentText.substring(0, range.first)
+            val after = currentText.substring(range.last)
+            val newText = before + replaceWith + after
+
+            // Calculate the new cursor position after the replacement
+            val newCursorPos = range.first + replaceWith.length
+
+            // Update TextFieldValue
+            _textFieldValue.value = TextFieldValue(
+                text = newText,
+                selection = TextRange(newCursorPos)
+            )
+            // Mark as modified
+            _isModified.value = _loadedFileContent.value != newText
+
+            // Important: Re-run the search on the modified text
+            // This updates results and potentially moves the current match index
+            performSearch()
+
+            // After replacing, try to find the *next* logical match based on the original index
+            // This is tricky because performSearch resets the index.
+            // A simple approach: if there are matches left, try to go to the one
+            // that *would have been* next.
+            val oldResultCount = results.size
+            val newResults = _searchResults.value
+            if (newResults.isNotEmpty()) {
+                // Try to find the first match *after* the replaced text's end position
+                val nextMatchIndex = newResults.indexOfFirst { it.first >= newCursorPos }
+                if (nextMatchIndex != -1) {
+                    _currentMatchIndex.value = nextMatchIndex
+                } else {
+                    // If no match after, wrap around or stay at first/last
+                    _currentMatchIndex.value = 0 // Or size - 1, depending on desired wrap behavior
+                }
+                highlightCurrentMatch() // Highlight the potentially new current match
+            } else {
+                // No matches left after replacement
+                _currentMatchIndex.value = -1
+                // Optionally clear selection or keep cursor at end of replacement
+                 _textFieldValue.value = _textFieldValue.value.copy(selection = TextRange(newCursorPos))
+            }
+        }
+    }
+
+    fun replaceAll() {
+        val findQuery = _searchQuery.value
+        val replaceWith = _replaceQuery.value
+        val currentText = _textFieldValue.value.text
+
+        if (findQuery.isBlank() || !currentText.contains(findQuery, ignoreCase = true)) {
+            return // Nothing to replace
+        }
+
+        // Simple replaceAll, case-insensitive
+        val newText = currentText.replace(findQuery, replaceWith, ignoreCase = true)
+
+        if (newText != currentText) {
+             _textFieldValue.value = TextFieldValue(
+                 text = newText,
+                 // Reset selection to the beginning after replace all
+                 selection = TextRange(0)
+             )
+             _isModified.value = _loadedFileContent.value != newText
+             // Reset search results as they are now invalid
+             resetSearchState()
+             // Optionally, hide the find bar after replace all
+             // _isFindBarVisible.value = false
+        }
+    }
+
+    // --- End Replace Functionality Methods ---
 
     /**
      * Reads the content of a file URI using ContentResolver and DocumentFile.

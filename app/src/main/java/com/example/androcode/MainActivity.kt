@@ -127,6 +127,8 @@ import androidx.compose.runtime.remember // Ensure remember is imported
 import androidx.compose.runtime.mutableStateOf // Ensure mutableStateOf is imported
 import androidx.compose.runtime.getValue // Ensure getValue is imported
 import androidx.compose.runtime.setValue // Ensure setValue is imported
+import androidx.compose.material.icons.filled.FindReplace // <-- Import FindReplace
+import androidx.compose.material3.ButtonDefaults // <-- Import for button colors/padding
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -818,60 +820,97 @@ fun FindBar(
     onClose: () -> Unit
 ) {
     val searchQuery by editorViewModel.searchQuery.collectAsState()
+    val replaceQuery by editorViewModel.replaceQuery.collectAsState() // Collect replace query
     val searchResults by editorViewModel.searchResults.collectAsState()
     val currentMatchIndex by editorViewModel.currentMatchIndex.collectAsState()
 
     val hasResults = searchResults.isNotEmpty()
     val currentMatchDisplay = if (hasResults) currentMatchIndex + 1 else 0
     val totalMatches = searchResults.size
+    val canReplace = hasResults && currentMatchIndex != -1
+    val canReplaceAll = hasResults
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shadowElevation = 4.dp, // Add some elevation
         color = MaterialTheme.colorScheme.surfaceVariant
     ) {
-        Row(
-            modifier = Modifier
-                .padding(horizontal = 8.dp, vertical = 4.dp)
-                .height(IntrinsicSize.Min), // Ensure row items align height
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { editorViewModel.setSearchQuery(it) },
-                placeholder = { Text("Find") },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-                textStyle = MaterialTheme.typography.bodyMedium, // Smaller text
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) { // Use Column
+            // --- Find Row ---
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp) // Reduced spacing
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { editorViewModel.setSearchQuery(it) },
+                    placeholder = { Text("Find") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    textStyle = MaterialTheme.typography.bodyMedium // Smaller text
                 )
-            )
 
-            // Display match count (optional)
-            if (searchQuery.isNotEmpty()) {
-                Text(
-                    text = if (hasResults) "$currentMatchDisplay of $totalMatches" else "0 of 0",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(horizontal = 4.dp)
+                // Display match count
+                if (searchQuery.isNotEmpty()) {
+                    Text(
+                        text = if (hasResults) "$currentMatchDisplay/$totalMatches" else "0/0", // Shorter format
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 2.dp)
+                    )
+                }
+
+                // Previous Button
+                IconButton(onClick = { editorViewModel.findPrevious() }, enabled = hasResults) {
+                    Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Previous Match")
+                }
+
+                // Next Button
+                IconButton(onClick = { editorViewModel.findNext() }, enabled = hasResults) {
+                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Next Match")
+                }
+
+                // Close Button
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close Find/Replace Bar")
+                }
+            }
+            // --- Replace Row ---
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                 modifier = Modifier
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                OutlinedTextField(
+                    value = replaceQuery,
+                    onValueChange = { editorViewModel.setReplaceQuery(it) },
+                    placeholder = { Text("Replace with") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    textStyle = MaterialTheme.typography.bodyMedium
                 )
-            }
 
-            // Previous Button
-            IconButton(onClick = { editorViewModel.findPrevious() }, enabled = hasResults) {
-                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Previous Match")
-            }
+                // Replace Button (Current)
+                Button(
+                    onClick = { editorViewModel.replaceCurrent() },
+                    enabled = canReplace,
+                    contentPadding = PaddingValues(horizontal = 8.dp) // Less padding
+                    // Consider adding an icon here e.g., Icons.Filled.FindReplace
+                ) {
+                    Text("Replace", style = MaterialTheme.typography.labelSmall) // Smaller text
+                }
 
-            // Next Button
-            IconButton(onClick = { editorViewModel.findNext() }, enabled = hasResults) {
-                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Next Match")
-            }
-
-            // Close Button
-            IconButton(onClick = onClose) {
-                Icon(Icons.Filled.Close, contentDescription = "Close Find Bar")
+                // Replace All Button
+                 Button(
+                    onClick = { editorViewModel.replaceAll() },
+                    enabled = canReplaceAll,
+                    contentPadding = PaddingValues(horizontal = 8.dp)
+                ) {
+                    Text("All", style = MaterialTheme.typography.labelSmall) // Smaller text
+                }
             }
         }
     }
