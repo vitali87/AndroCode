@@ -46,3 +46,28 @@ captures/
 # crashlytics.properties
 # crashlytics-build.properties
 # fabric.properties
+
+# Execution reports
+/build/reports/
+
+# Generated code
+/app/build/generated/
+
+# Lint results
+lint-results-debug.xml
+lint-results-release.xml
+
+# Heap dumps (like the one causing the error)
+*.hprof
+
+# Temp files
+*.lock
+*.log
+
+# Mac OS folder attributes
+._*
+
+# Windows thumbnail cache files
+Thumbs.db
+ehthumbs.db
+ehthumbs_vista.db
