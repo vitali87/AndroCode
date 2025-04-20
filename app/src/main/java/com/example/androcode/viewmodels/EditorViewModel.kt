@@ -20,6 +20,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.TextRange
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import java.util.ArrayDeque
 
 @HiltViewModel
 class EditorViewModel @Inject constructor(
@@ -86,6 +87,16 @@ class EditorViewModel @Inject constructor(
     private val _replaceQuery = MutableStateFlow("")
     val replaceQuery: StateFlow<String> = _replaceQuery.asStateFlow()
 
+    // --- Code Folding State ---
+    // Maps the starting line index of a foldable block to its full line range
+    private val _foldableRegions = MutableStateFlow<Map<Int, IntRange>>(emptyMap())
+    val foldableRegions: StateFlow<Map<Int, IntRange>> = _foldableRegions.asStateFlow()
+
+    // Set of starting line indices that are currently folded
+    private val _foldedLines = MutableStateFlow<Set<Int>>(emptySet())
+    val foldedLines: StateFlow<Set<Int>> = _foldedLines.asStateFlow()
+    // --- End Code Folding State ---
+
     // --- End Find/Replace Functionality State ---
 
     /**
@@ -109,6 +120,7 @@ class EditorViewModel @Inject constructor(
                 _textFieldValue.value = TextFieldValue(content) // Initialize TextFieldValue
                 _openedFileUri.value = uri
                 _isModified.value = false // Reset modified state on open
+                updateFoldableRegions(content) // <-- Analyze regions on open
             } catch (e: Exception) {
                 println("Error reading file content for $uri: ${e.message}")
                 _errorLoadingContent.value = "Error loading file: ${e.message}"
@@ -116,6 +128,8 @@ class EditorViewModel @Inject constructor(
                  _loadedFileContent.value = null
                  _currentFileContent.value = null
                  _isModified.value = false
+                 _foldableRegions.value = emptyMap() // Clear regions on error
+                 _foldedLines.value = emptySet()
             } finally {
                 _isLoadingContent.value = false
             }
@@ -125,9 +139,15 @@ class EditorViewModel @Inject constructor(
     // Call this when the text content changes in the UI
     // Needs to handle TextFieldValue for BasicTextField
     fun onTextFieldValueChange(newValue: TextFieldValue) {
+        val oldText = _textFieldValue.value.text
         _textFieldValue.value = newValue
-        _currentFileContent.value = newValue.text
-        _isModified.value = _loadedFileContent.value != newValue.text
+        // Only update current content and modified flag if text actually changed
+        if (oldText != newValue.text) {
+            _currentFileContent.value = newValue.text
+            _isModified.value = _loadedFileContent.value != newValue.text
+            // Trigger foldable region analysis when text changes
+            updateFoldableRegions(newValue.text)
+        }
     }
 
     /**
@@ -278,6 +298,84 @@ class EditorViewModel @Inject constructor(
     }
 
     // --- End Find Functionality Methods ---
+
+    // --- Code Folding Methods ---
+
+    fun toggleFold(lineIndex: Int) {
+        val currentFolded = _foldedLines.value
+        // Check if the line is actually foldable before toggling
+        if (_foldableRegions.value.containsKey(lineIndex)) {
+            if (currentFolded.contains(lineIndex)) {
+                _foldedLines.value = currentFolded - lineIndex
+                // println("[Folding] Unfolded line: $lineIndex") // Removed log
+            } else {
+                _foldedLines.value = currentFolded + lineIndex
+                // println("[Folding] Folded line: $lineIndex") // Removed log
+            }
+            // VisualTransformation will react to state change, main TODO is OffsetMapping
+        } else {
+             println("[Folding] Warn: Attempted to toggle non-foldable line: $lineIndex") // Keep as warning
+        }
+    }
+
+    /**
+     * Analyzes the text content to find foldable regions (multi-line blocks based on {}).
+     * Updates the foldableRegions StateFlow.
+     */
+    private fun updateFoldableRegions(text: String?) {
+        if (text == null) {
+            _foldableRegions.value = emptyMap()
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.Default) { // Parse on a background thread
+            val regions = mutableMapOf<Int, IntRange>()
+            val braceStack = ArrayDeque<Pair<Int, Int>>() // Pair: lineIndex, columnIndex
+            val lines = text.lines()
+
+            lines.forEachIndexed { lineIndex, line ->
+                line.forEachIndexed { columnIndex, char ->
+                    when (char) {
+                        '{' -> braceStack.addLast(Pair(lineIndex, columnIndex))
+                        '}' -> {
+                            if (braceStack.isNotEmpty()) {
+                                val (startLine, _) = braceStack.removeLast()
+                                val endLine = lineIndex
+                                // Add if it spans multiple lines
+                                if (endLine > startLine) {
+                                    regions[startLine] = startLine..endLine
+                                }
+                            } else {
+                                // Handle unmatched closing braces
+                                println("[Folding] Warn: Unmatched closing brace at Line $lineIndex Col $columnIndex")
+                            }
+                        }
+                    }
+                }
+            }
+            // Handle unmatched opening braces left in stack
+            if (braceStack.isNotEmpty()) {
+                 println("[Folding] Warn: Unmatched opening braces remain at end of file: ${braceStack.size}")
+            }
+
+            // Switch back to main thread to update StateFlows safely
+            withContext(Dispatchers.Main) {
+                val currentRegions = _foldableRegions.value
+                if (currentRegions != regions) { // Only update if changed
+                    _foldableRegions.value = regions
+                     // println("[Folding] Updated foldableRegions: ${regions.size} regions found.") // Removed log
+                    // Prune folded lines that no longer correspond to a valid region
+                    val validFolded = _foldedLines.value.filter { regions.containsKey(it) }.toSet()
+                    if (validFolded != _foldedLines.value) {
+                        _foldedLines.value = validFolded
+                        // println("[Folding] Pruned folded lines to: ${validFolded.size}") // Removed log
+                    }
+                }
+            }
+        }
+    }
+
+    // --- End Code Folding Methods ---
 
     // --- Replace Functionality Methods ---
     fun setReplaceQuery(query: String) {
