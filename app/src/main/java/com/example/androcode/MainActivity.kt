@@ -1006,6 +1006,70 @@ fun FindBar(
     }
 }
 
+// --- Data class for mapping info ---
+data class FoldMappingInfo(
+    val originalFoldStartOffset: Int,
+    val originalFoldEndOffset: Int,
+    val transformedPlaceholderStartOffset: Int,
+    val transformedPlaceholderEndOffset: Int
+)
+
+// --- Custom OffsetMapping ---
+class FoldingOffsetMapping(private val mappingInfoList: List<FoldMappingInfo>) : OffsetMapping {
+
+    override fun originalToTransformed(offset: Int): Int {
+        var currentDelta = 0
+        for (info in mappingInfoList) {
+            val foldDelta = (info.transformedPlaceholderEndOffset - info.transformedPlaceholderStartOffset) -
+                            (info.originalFoldEndOffset - info.originalFoldStartOffset)
+
+            if (offset <= info.originalFoldStartOffset) {
+                // Offset is before this folded region, apply accumulated delta and we're done
+                return offset + currentDelta
+            }
+
+            if (offset > info.originalFoldStartOffset && offset < info.originalFoldEndOffset) {
+                // Offset is strictly *inside* the folded region in the original text.
+                // Map it to the start of the placeholder in the transformed text.
+                return info.transformedPlaceholderStartOffset + currentDelta
+            }
+
+            // Offset is at or after the end of this folded region in the original text.
+            // Accumulate the delta from this fold and continue.
+            currentDelta += foldDelta
+        }
+        // Offset is after all folded regions
+        return offset + currentDelta
+    }
+
+    override fun transformedToOriginal(offset: Int): Int {
+        var currentDelta = 0
+        for (info in mappingInfoList) {
+            val foldDelta = (info.transformedPlaceholderEndOffset - info.transformedPlaceholderStartOffset) -
+                            (info.originalFoldEndOffset - info.originalFoldStartOffset)
+            val transformedStart = info.transformedPlaceholderStartOffset + currentDelta
+            val transformedEnd = info.transformedPlaceholderEndOffset + currentDelta
+
+            if (offset <= transformedStart) {
+                // Offset is before this placeholder, apply accumulated delta (in reverse) and we're done
+                return offset - currentDelta
+            }
+
+            if (offset > transformedStart && offset < transformedEnd) {
+                // Offset is strictly *inside* the placeholder in the transformed text.
+                // Map it to the start of the original folded region.
+                return info.originalFoldStartOffset
+            }
+
+            // Offset is at or after the end of this placeholder.
+            // Accumulate the delta and continue.
+            currentDelta += foldDelta
+        }
+        // Offset is after all placeholders
+        return offset - currentDelta
+    }
+}
+
 // --- Visual Transformation for Code Folding ---
 class CodeFoldingTransformation(
     val foldableRegions: Map<Int, IntRange>,
@@ -1021,41 +1085,86 @@ class CodeFoldingTransformation(
         val originalText = text.text
         val lines = originalText.lines()
         val transformedText = StringBuilder()
-        var consumedOriginalLength = 0 // Track length of original text processed
-
-        // TODO: Implement complex offset mapping
-        // This basic version just removes lines, offset mapping will be incorrect
-        val offsetMapping = OffsetMapping.Identity // Placeholder!
+        val foldMappings = mutableListOf<FoldMappingInfo>()
+        var currentOriginalOffset = 0
+        var currentTransformedOffset = 0
 
         var currentLineIndex = 0
         while (currentLineIndex < lines.size) {
             val line = lines[currentLineIndex]
+            val lineLengthWithNewline = line.length + 1 // Account for newline
+
             if (foldedLines.contains(currentLineIndex) && foldableRegions.containsKey(currentLineIndex)) {
                 // This line starts a folded block
                 val foldRange = foldableRegions[currentLineIndex]!!
-                transformedText.append(line) // Append the first line of the folded block
-                transformedText.append(" {...}\n") // Append placeholder
+                val placeholder = " {...}\n"
+                val placeholderLength = placeholder.length
 
-                // Skip the original lines that are now folded
-                val linesToSkip = foldRange.last - foldRange.first
-                currentLineIndex += linesToSkip + 1
-            } else {
-                // This line is not folded
+                // 1. Append the first line (visible part)
                 transformedText.append(line)
-                // Add newline unless it's the very last line and original text didn't end with one
+                transformedText.append('\n') // Add newline for the first visible line
+                val firstLineTransformedEndOffset = currentTransformedOffset + lineLengthWithNewline
+
+                // Calculate original offsets for the entire folded block
+                val originalFoldStartOffset = currentOriginalOffset
+                var originalFoldEndOffset = originalFoldStartOffset + lineLengthWithNewline
+                val linesToSkip = foldRange.last - foldRange.first
+                for (i in 1..linesToSkip) {
+                    if (currentLineIndex + i < lines.size) {
+                        originalFoldEndOffset += lines[currentLineIndex + i].length + 1
+                    }
+                }
+                 // Adjust if last line doesn't end with newline in original
+                if (currentLineIndex + linesToSkip == lines.size - 1 && !originalText.endsWith('\n')) {
+                    originalFoldEndOffset--
+                }
+
+                // 2. Append the placeholder
+                transformedText.append(placeholder.removeSuffix("\n")) // Append placeholder without newline yet
+                val transformedPlaceholderStartOffset = firstLineTransformedEndOffset
+                val transformedPlaceholderEndOffset = transformedPlaceholderStartOffset + placeholderLength -1 // -1 for newline
+
+                 // Add newline for placeholder only if block isn't last line OR original ends with newline
+                if (foldRange.last < lines.size - 1 || originalText.endsWith('\n')) {
+                    transformedText.append('\n')
+                    // transformedPlaceholderEndOffset++ // End offset includes newline if added
+                }
+
+                // Store mapping info
+                foldMappings.add(
+                    FoldMappingInfo(
+                        originalFoldStartOffset = originalFoldStartOffset,
+                        originalFoldEndOffset = originalFoldEndOffset,
+                        transformedPlaceholderStartOffset = transformedPlaceholderStartOffset,
+                        transformedPlaceholderEndOffset = transformedPlaceholderEndOffset + (if(transformedText.endsWith('\n')) 1 else 0) // Adjust end offset based on newline
+                    )
+                )
+
+                // Update offsets and skip lines
+                currentOriginalOffset = originalFoldEndOffset
+                currentTransformedOffset = transformedPlaceholderStartOffset + placeholderLength // Use actual length added
+                currentLineIndex += linesToSkip + 1
+
+            } else {
+                // This line is not folded - append normally
+                transformedText.append(line)
+                 // Add newline unless it's the very last line and original text didn't end with one
                 if (currentLineIndex < lines.size - 1 || originalText.endsWith('\n')) {
                      transformedText.append('\n')
+                     currentOriginalOffset += lineLengthWithNewline
+                     currentTransformedOffset += lineLengthWithNewline
+                } else {
+                    currentOriginalOffset += line.length
+                    currentTransformedOffset += line.length
                 }
                 currentLineIndex++
             }
         }
 
-        // Trim trailing newline if the transformed text has one but original didn't
-        if (!originalText.endsWith('\n') && transformedText.endsWith("\n")) {
-            transformedText.setLength(transformedText.length - 1)
-        }
+        // Build the OffsetMapping instance (still has placeholder logic inside)
+        val offsetMapping = FoldingOffsetMapping(foldMappings)
 
-        println("[Folding Transform] Original Length: ${originalText.length}, Transformed Length: ${transformedText.length}")
+        // println("[Folding Transform] Original Length: ${originalText.length}, Transformed Length: ${transformedText.length}") // Removed log
         // TODO: Replace OffsetMapping.Identity with actual mapping logic
         return TransformedText(AnnotatedString(transformedText.toString()), offsetMapping)
     }

@@ -307,14 +307,14 @@ class EditorViewModel @Inject constructor(
         if (_foldableRegions.value.containsKey(lineIndex)) {
             if (currentFolded.contains(lineIndex)) {
                 _foldedLines.value = currentFolded - lineIndex
-                println("[Folding] Unfolded line: $lineIndex")
+                // println("[Folding] Unfolded line: $lineIndex") // Removed log
             } else {
                 _foldedLines.value = currentFolded + lineIndex
-                println("[Folding] Folded line: $lineIndex")
+                // println("[Folding] Folded line: $lineIndex") // Removed log
             }
-            // TODO: Trigger text transformation based on the new folded state
+            // VisualTransformation will react to state change, main TODO is OffsetMapping
         } else {
-            println("[Folding] Attempted to toggle non-foldable line: $lineIndex")
+             println("[Folding] Warn: Attempted to toggle non-foldable line: $lineIndex") // Keep as warning
         }
     }
 
@@ -345,25 +345,30 @@ class EditorViewModel @Inject constructor(
                                 if (endLine > startLine) {
                                     regions[startLine] = startLine..endLine
                                 }
+                            } else {
+                                // Handle unmatched closing braces
+                                println("[Folding] Warn: Unmatched closing brace at Line $lineIndex Col $columnIndex")
                             }
-                            // Optional: Handle unmatched closing braces
                         }
                     }
                 }
             }
-            // Optional: Handle unmatched opening braces left in stack
+            // Handle unmatched opening braces left in stack
+            if (braceStack.isNotEmpty()) {
+                 println("[Folding] Warn: Unmatched opening braces remain at end of file: ${braceStack.size}")
+            }
 
             // Switch back to main thread to update StateFlows safely
             withContext(Dispatchers.Main) {
                 val currentRegions = _foldableRegions.value
                 if (currentRegions != regions) { // Only update if changed
                     _foldableRegions.value = regions
-                     println("[Folding] Updated foldableRegions: ${regions.size} regions found.")
+                     // println("[Folding] Updated foldableRegions: ${regions.size} regions found.") // Removed log
                     // Prune folded lines that no longer correspond to a valid region
                     val validFolded = _foldedLines.value.filter { regions.containsKey(it) }.toSet()
                     if (validFolded != _foldedLines.value) {
                         _foldedLines.value = validFolded
-                        println("[Folding] Pruned folded lines to: ${validFolded.size}")
+                        // println("[Folding] Pruned folded lines to: ${validFolded.size}") // Removed log
                     }
                 }
             }
