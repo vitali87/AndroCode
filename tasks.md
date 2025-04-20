@@ -40,7 +40,7 @@ Based on the development plan in `plan.md`.
     *   [x] Implement replace functionality (within the current file).
     *   [x] Implement code folding mechanism (brace-based).
     *   [x] Add bracket matching visualization.
-    *   [ ] Add indentation guides.
+    *   [x] Add indentation guides.
 *   [ ] **[2.2] Robust Syntax Highlighting:**
     *   [ ] Add support for more languages (JS, Python, HTML, CSS, C/C++).
     *   [ ] Refine highlighting rules and accuracy.

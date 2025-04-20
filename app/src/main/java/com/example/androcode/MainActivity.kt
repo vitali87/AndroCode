@@ -406,6 +406,54 @@ fun EditorView(
                             .weight(1f) // Take remaining width
                             .verticalScroll(scrollState) // Use the *shared* scroll state
                             .clipToBounds() // Clip content within the Box
+                            .drawBehind { // <-- Draw indentation guides behind text
+                                textLayoutResult?.let { layoutResult ->
+                                    // Get Paint object to measure text accurately
+                                    val textPaint = Paint().apply {
+                                        isAntiAlias = true
+                                        typeface = Typeface.MONOSPACE // Ensure consistent font
+                                        textSize = editorTextStyle.fontSize.toPx() // Use editor's font size
+                                    }
+                                    val spaceWidthPx = textPaint.measureText(" ")
+                                    val indentSizeSpaces = 4 // TODO: Make configurable
+                                    val indentStepPx = spaceWidthPx * indentSizeSpaces
+                                    val guideColor = Color.Gray.copy(alpha = 0.2f)
+
+                                    if (indentStepPx <= 0) return@drawBehind // Avoid issues if space width is zero
+
+                                    // Optimize: Calculate visible line range
+                                    val firstVisibleLine = layoutResult.getLineForVerticalPosition(0f)
+                                    val lastVisibleLine = layoutResult.getLineForVerticalPosition(size.height)
+                                    // Add a buffer in case of partial lines, ensure range is valid
+                                    val startLine = maxOf(0, firstVisibleLine - 1)
+                                    val endLine = minOf(layoutResult.lineCount - 1, lastVisibleLine + 1)
+
+                                    // Draw guides only for the visible lines
+                                    for (lineIndex in startLine..endLine) {
+                                        val lineStartOffset = layoutResult.getLineStart(lineIndex)
+                                        val lineEndOffset = layoutResult.getLineEnd(lineIndex)
+                                        // Check for invalid range before substring
+                                        if (lineStartOffset >= lineEndOffset) continue 
+                                        val lineText = textState.text.substring(lineStartOffset, lineEndOffset)
+                                        val leadingSpaces = lineText.takeWhile { it == ' ' }.count()
+                                        // Calculate indent level based on configured size
+                                        val indentLevel = leadingSpaces / indentSizeSpaces 
+
+                                        val lineTop = layoutResult.getLineTop(lineIndex)
+                                        val lineBottom = layoutResult.getLineBottom(lineIndex)
+
+                                        for (level in 1..indentLevel) {
+                                            val xOffset = level * indentStepPx
+                                            drawLine(
+                                                color = guideColor,
+                                                start = Offset(xOffset, lineTop),
+                                                end = Offset(xOffset, lineBottom),
+                                                strokeWidth = 1.dp.toPx()
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         ) {
                             innerTextField() // **MUST call innerTextField() here**
                         }
