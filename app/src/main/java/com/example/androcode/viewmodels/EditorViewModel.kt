@@ -86,6 +86,16 @@ class EditorViewModel @Inject constructor(
     private val _replaceQuery = MutableStateFlow("")
     val replaceQuery: StateFlow<String> = _replaceQuery.asStateFlow()
 
+    // --- Code Folding State ---
+    // Maps the starting line index of a foldable block to its full line range
+    private val _foldableRegions = MutableStateFlow<Map<Int, IntRange>>(emptyMap())
+    val foldableRegions: StateFlow<Map<Int, IntRange>> = _foldableRegions.asStateFlow()
+
+    // Set of starting line indices that are currently folded
+    private val _foldedLines = MutableStateFlow<Set<Int>>(emptySet())
+    val foldedLines: StateFlow<Set<Int>> = _foldedLines.asStateFlow()
+    // --- End Code Folding State ---
+
     // --- End Find/Replace Functionality State ---
 
     /**
@@ -125,9 +135,15 @@ class EditorViewModel @Inject constructor(
     // Call this when the text content changes in the UI
     // Needs to handle TextFieldValue for BasicTextField
     fun onTextFieldValueChange(newValue: TextFieldValue) {
+        val oldText = _textFieldValue.value.text
         _textFieldValue.value = newValue
-        _currentFileContent.value = newValue.text
-        _isModified.value = _loadedFileContent.value != newValue.text
+        // Only update current content and modified flag if text actually changed
+        if (oldText != newValue.text) {
+            _currentFileContent.value = newValue.text
+            _isModified.value = _loadedFileContent.value != newValue.text
+            // Trigger foldable region analysis when text changes
+            updateFoldableRegions(newValue.text)
+        }
     }
 
     /**
@@ -278,6 +294,73 @@ class EditorViewModel @Inject constructor(
     }
 
     // --- End Find Functionality Methods ---
+
+    // --- Code Folding Methods ---
+
+    fun toggleFold(startLineIndex: Int) {
+        val currentFolded = _foldedLines.value
+        println("[ViewModel] toggleFold called for line $startLineIndex. Current folded: $currentFolded")
+        if (currentFolded.contains(startLineIndex)) {
+            _foldedLines.value = currentFolded - startLineIndex
+        } else {
+            _foldedLines.value = currentFolded + startLineIndex
+        }
+        println("[ViewModel] toggleFold finished for line $startLineIndex. New folded: ${_foldedLines.value}")
+        // Note: In this phase, we are not modifying the text yet.
+        // In a full implementation, this would trigger text update.
+    }
+
+    private fun updateFoldableRegions(text: String) {
+        viewModelScope.launch(Dispatchers.Default) { // Run analysis off the main thread
+            val lines = text.lines()
+            val regions = mutableMapOf<Int, IntRange>()
+            if (lines.size < 2) {
+                _foldableRegions.value = emptyMap()
+                return@launch
+            }
+
+            val indentations = lines.map { getIndentationLevel(it) }
+
+            for (i in lines.indices) {
+                val currentIndent = indentations[i]
+                if (i + 1 < lines.size && indentations[i+1] > currentIndent) {
+                    // Potential start of a foldable block
+                    var endLine = i + 1
+                    while (endLine + 1 < lines.size && indentations[endLine + 1] > currentIndent) {
+                        endLine++
+                    }
+                    // Ensure the block is not empty and has valid indentation
+                    if (endLine > i) {
+                        // Check if the line *after* the block returns to the same or lesser indent
+                        val nextLineIndent = if (endLine + 1 < lines.size) indentations[endLine + 1] else -1
+                        if (nextLineIndent <= currentIndent) {
+                             regions[i] = i..endLine
+                        }
+                         // More sophisticated logic could handle nested blocks better
+                    }
+                }
+            }
+            println("[EditorViewModel] Detected Foldable Regions: $regions") // Add logging
+            _foldableRegions.value = regions
+        }
+    }
+
+    // Simple indentation calculation (spaces or tabs)
+    // TODO: Make this more robust (configurable indent size, mixed spaces/tabs)
+    private fun getIndentationLevel(line: String): Int {
+        val tabSize = 4 // Assume tab width is 4 for now
+        var count = 0
+        for (char in line) {
+            when (char) {
+                ' ' -> count++
+                '\t' -> count += tabSize - (count % tabSize) // Align to next tab stop
+                else -> break // Stop at first non-whitespace character
+            }
+        }
+        return count / tabSize // Return level based on assumed tab size
+    }
+
+    // --- End Code Folding Methods ---
 
     // --- Replace Functionality Methods ---
     fun setReplaceQuery(query: String) {

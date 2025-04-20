@@ -62,6 +62,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview // <-- Import Preview
 import androidx.compose.ui.unit.dp // <-- Import dp
 import androidx.compose.ui.unit.Dp // <-- Add this import
@@ -129,6 +131,9 @@ import androidx.compose.runtime.getValue // Ensure getValue is imported
 import androidx.compose.runtime.setValue // Ensure setValue is imported
 import androidx.compose.material.icons.filled.FindReplace // <-- Import FindReplace
 import androidx.compose.material3.ButtonDefaults // <-- Import for button colors/padding
+import androidx.compose.ui.geometry.Offset // Needed for tap offset
+import androidx.compose.ui.graphics.SolidColor // <-- Add import for SolidColor
+import androidx.compose.foundation.text.KeyboardOptions // <-- Add import
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -253,6 +258,10 @@ fun EditorView(
     val coroutineScope = rememberCoroutineScope() // Needed for pointerInput
     var isAltKeyPressed by remember { mutableStateOf(false) } // State for Alt key
 
+    // Code Folding State
+    val foldableRegions by editorViewModel.foldableRegions.collectAsState()
+    val foldedLines by editorViewModel.foldedLines.collectAsState()
+
     // Define editor text style centrally - no need for remember here,
     // Compose handles recomposition based on theme changes.
     val editorTextStyle = TextStyle(
@@ -323,52 +332,35 @@ fun EditorView(
                         } else {
                             false // Don't consume other key events
                         }
-                    }
-                    .pointerInput(Unit) { // Add pointer input handling AFTER onKeyEvent
-                        detectTapGestures { offset ->
-                            // Use the state updated by onKeyEvent
-                            if (isAltKeyPressed) {
-                                textLayoutResult?.let { layoutResult ->
-                                    val clickedOffset = layoutResult.getOffsetForPosition(offset)
-                                    editorViewModel.addSelection(clickedOffset)
-                                }
-                            } else {
-                                // Let BasicTextField handle primary cursor placement on its own
-                                // by default, but clear additional selections.
-                                textLayoutResult?.let { layoutResult ->
-                                     val clickedOffset = layoutResult.getOffsetForPosition(offset)
-                                     // Update TextFieldValue to set the primary cursor
-                                     // This might override BasicTextField's internal handling,
-                                     // ensure this interaction is desired.
-                                     editorViewModel.onTextFieldValueChange(
-                                         textState.copy(selection = TextRange(clickedOffset))
-                                     )
-                                     // Clear additional selections on a normal click
-                                     editorViewModel.clearAdditionalSelections() // Now implemented
-                                }
-                            }
-                        }
                     },
                 textStyle = editorTextStyle,
                 onTextLayout = { result ->
                     textLayoutResult = result // Capture layout result for gutter and scrolling
                 },
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None), // <-- Disable auto-capitalization
                 interactionSource = interactionSource, // Pass interaction source
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), // <-- Explicitly set cursor color
                 decorationBox = { innerTextField -> // The crucial decorationBox lambda
                     Row(
                         Modifier
-                            // .fillMaxSize() // Let the outer BasicTextField modifier handle size
-                            .padding(horizontal = 8.dp, vertical = 4.dp) // Padding inside the border
+                            .padding(vertical = 4.dp)
                     ) {
                         // Line Number Gutter Composable
-                        LineNumberGutterInternal(
+                        val gutterWidth = LineNumberGutterInternal(
                             modifier = Modifier
-                                .padding(end = 8.dp) // Space between gutter and text
                                 .fillMaxHeight(), // Gutter should fill height
                             textLayoutResult = textLayoutResult,
                             textStyle = editorTextStyle, // Pass text style for metrics
-                            scrollState = scrollState // Pass the *shared* scroll state
+                            scrollState = scrollState, // Pass the *shared* scroll state
+                            foldableRegions = foldableRegions, // Pass folding state
+                            foldedLines = foldedLines,       // Pass folding state
+                            onToggleFold = { lineIndex -> // Pass toggle callback
+                                editorViewModel.toggleFold(lineIndex)
+                            }
                         )
+
+                        // Explicit spacer between gutter and text field
+                        Spacer(modifier = Modifier.width(8.dp))
 
                         // The actual text field content, wrapped for scrolling
                         Box(modifier = Modifier
@@ -400,26 +392,32 @@ private fun LineNumberGutterInternal(
     modifier: Modifier = Modifier,
     textLayoutResult: TextLayoutResult?,
     textStyle: TextStyle, // Receive textStyle for accurate metrics
-    scrollState: ScrollState // Receive the *shared* scroll state
-) {
+    scrollState: ScrollState, // Receive the *shared* scroll state
+    foldableRegions: Map<Int, IntRange>, // Receive foldable regions
+    foldedLines: Set<Int>,               // Receive set of folded lines
+    onToggleFold: (Int) -> Unit         // Callback to toggle fold state
+): Dp { // <-- Return the calculated Dp width
     val density = LocalDensity.current
     val gutterColor = MaterialTheme.colorScheme.outline
+    val markerColor = MaterialTheme.colorScheme.primary // Use a distinct color for testing
 
     // --- Calculate context-dependent values DIRECTLY (no unnecessary remember) --- //
     val textSizePx: Float
     val lineNumPaddingPx: Float
     val gutterPaddingPx: Float
     val gutterWidthDp: Dp
+    val markerSizePx: Float
+    val markerPaddingPx: Float
     with(density) {
         textSizePx = textStyle.fontSize.toPx()
-        lineNumPaddingPx = 4.dp.toPx()
-        gutterPaddingPx = 8.dp.toPx()
+        lineNumPaddingPx = 4.dp.toPx() // Keep right padding inside gutter
+        gutterPaddingPx = 2.dp.toPx()  // Reduced left padding further (from 4.dp)
+        // Calculate marker size and padding based on font size
+        markerSizePx = textSizePx * 0.7f // Slightly larger marker
+        markerPaddingPx = 4.dp.toPx() // More padding around the marker
     }
     val gutterColorArgb = gutterColor.toArgb()
-
-    val maxLineNumberText = remember(textLayoutResult?.lineCount) {
-        (textLayoutResult?.lineCount ?: 1).toString()
-    }
+    val markerColorArgb = markerColor.toArgb()
 
     // Remember Paint object, keyed by primitive values
     val lineNumberPaint = remember(textSizePx, gutterColorArgb) {
@@ -432,19 +430,73 @@ private fun LineNumberGutterInternal(
         }
     }
 
-    // Calculate final gutter width in Dp, using the remembered Paint
-    // This calculation is outside remember, using density directly
+    val maxLineNumberText = remember(textLayoutResult?.lineCount) {
+        (textLayoutResult?.lineCount ?: 1).toString()
+    }
+    val maxLineNumberWidthPx = remember(lineNumberPaint, maxLineNumberText) {
+        lineNumberPaint.measureText(maxLineNumberText)
+    }
+
+    // Separate Paint for marker for potential styling later
+    val markerPaint = remember(textSizePx, markerColorArgb) { // Keyed by marker color
+         Paint().apply {
+            isAntiAlias = true
+            textAlign = android.graphics.Paint.Align.CENTER // Center align marker
+            typeface = Typeface.MONOSPACE
+            textSize = markerSizePx // Use marker size
+            color = markerColorArgb // Use marker color
+        }
+    }
+
+    // Calculate final gutter width in Dp, accounting for marker and line number areas
     with(density) {
-         gutterWidthDp = (lineNumberPaint.measureText(maxLineNumberText) + gutterPaddingPx).toDp()
+        // val lineNumberWidthPx = lineNumberPaint.measureText(maxLineNumberText)
+        // Width = LeftPadding + MarkerWidth + SpaceBetween + LineNumberWidth + RightPadding
+        // Simplified: GutterPadding + MarkerWidth + Space + LineNumberWidth + Padding
+        val spaceBetweenMarkerAndNumber = 4.dp.toPx()
+        val totalWidthPx = gutterPaddingPx + markerSizePx + spaceBetweenMarkerAndNumber + maxLineNumberWidthPx + lineNumPaddingPx
+        gutterWidthDp = totalWidthPx.toDp()
     }
 
     Canvas(
         modifier = modifier
-            .width(gutterWidthDp) // Use calculated Dp width
-            .clipToBounds()
+            .width(gutterWidthDp) // Use NEW calculated Dp width
+            .clipToBounds() // <-- Moved clipToBounds AFTER pointerInput
+            .pointerInput(Unit) { // <-- Moved pointerInput HERE
+                detectTapGestures { offset ->
+                    textLayoutResult?.let { layoutResult ->
+                        val lineNumber = getLineForPosition(offset.y, layoutResult)
+                        if (lineNumber != -1 && foldableRegions.containsKey(lineNumber)) {
+                            // Use the variables directly available in this scope
+                            val markerCenterX = gutterPaddingPx + markerSizePx / 2f
+                            // Increase hit area slightly for easier tapping
+                            val hitAreaPadding = 4.dp.toPx()
+                            val markerHitAreaStartX = markerCenterX - (markerSizePx / 2f) - hitAreaPadding
+                            val markerHitAreaEndX = markerCenterX + (markerSizePx / 2f) + hitAreaPadding
+                            println("[Gutter Click] OffsetX: ${offset.x}, HitArea: $markerHitAreaStartX..$markerHitAreaEndX (Line: $lineNumber)")
+                            // Check if the tap is within the calculated hit area
+                            if (offset.x >= markerHitAreaStartX && offset.x <= markerHitAreaEndX) {
+                                println("[Gutter Click] Hit detected! Calling onToggleFold for line $lineNumber")
+                                onToggleFold(lineNumber) // Call the passed lambda
+                            } else {
+                                println("[Gutter Click] Missed hit area for line $lineNumber")
+                            }
+                        }
+                    }
+                }
+            }
     ) {
-        // Use pre-calculated pixel padding for drawing text position
+        // Marker X is positioned relative to the left edge now
+        val markerDrawX = gutterPaddingPx + markerSizePx / 2f
+        // Line number X is positioned relative to the right edge
         val lineNumDrawX = size.width - lineNumPaddingPx
+
+        // Log the sizes and positions
+        println("[Gutter Draw] Canvas size.width: ${size.width}, gutterWidthDp: ${gutterWidthDp.toPx()}")
+        println("[Gutter Draw] MarkerDrawX: $markerDrawX, LineNumDrawX: $lineNumDrawX")
+
+        // Log the received foldable regions map once per draw
+        println("[Gutter] Received Foldable Regions: $foldableRegions")
 
         drawIntoCanvas { canvas ->
             textLayoutResult?.let { layoutResult ->
@@ -457,20 +509,54 @@ private fun LineNumberGutterInternal(
                     val lineBottom = layoutResult.getLineBottom(lineIndex)
 
                     // Center the text vertically
-                    val verticalCenterOffset = (lineBottom - lineTop - (fontMetrics.descent - fontMetrics.ascent)) / 2f
-                    val yPos = lineTop + verticalCenterOffset - fontMetrics.ascent
+                    val lineCenterY = lineTop + (lineBottom - lineTop) / 2f
+                    val textBaselineY = lineCenterY - (fontMetrics.descent + fontMetrics.ascent) / 2f
+
+                    // Draw Fold Marker if applicable
+                    val isFoldableStart = foldableRegions.containsKey(lineIndex)
+                    if (lineIndex == 0) { // Log specifically for the first line
+                         println("[Gutter] Line 0 isFoldableStart: $isFoldableStart")
+                    }
+                    if (isFoldableStart) {
+                        println("[Gutter] Drawing marker for line $lineIndex") // Add log here
+                        val isFolded = foldedLines.contains(lineIndex)
+                        val markerChar = if (isFolded) "+" else "-"
+                        // Draw the marker slightly left of the line number
+                        canvas.nativeCanvas.drawText(
+                            markerChar,
+                            markerDrawX,
+                            textBaselineY, // Align marker baseline with number baseline
+                            markerPaint // Use separate marker paint
+                        )
+                    }
 
                     // Draw the line number
                     canvas.nativeCanvas.drawText(
                         lineNum,
                         lineNumDrawX, // Use pre-calculated X position
-                        yPos,
+                        textBaselineY,
                         lineNumberPaint
                     )
                 }
             }
         }
     }
+
+    return gutterWidthDp // <-- Return the calculated width
+}
+
+// Helper function to determine line number from Y-offset
+// Removed FontMetrics parameter as it's not needed for this logic
+private fun getLineForPosition(y: Float, layoutResult: TextLayoutResult): Int {
+    for (lineIndex in 0 until layoutResult.lineCount) {
+        val lineTop = layoutResult.getLineTop(lineIndex)
+        val lineBottom = layoutResult.getLineBottom(lineIndex)
+        if (y >= lineTop && y < lineBottom) {
+            return lineIndex
+        }
+    }
+    // If no line contains the Y-coordinate (e.g., click below last line)
+    return -1
 }
 
 @Composable
