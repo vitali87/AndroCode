@@ -349,7 +349,9 @@ fun EditorView(
                                 // Calculate the horizontal offset caused by gutter and spacer
                                 val horizontalOffsetPx = gutterWidth.toPx() + 8.dp.toPx()
 
-                                try {
+                                // Validate ranges before attempting to get bounding boxes
+                                val textLength = layoutResult.layoutInput.text.length
+                                if (range1.end <= textLength && range2.end <= textLength) { // Use range.end for safety
                                     val rect1 = layoutResult.getBoundingBox(range1.start)
                                     val rect2 = layoutResult.getBoundingBox(range2.start)
                                     // Draw slightly larger rects, shifted by the horizontal offset
@@ -363,9 +365,8 @@ fun EditorView(
                                         topLeft = rect2.topLeft.copy(x = rect2.topLeft.x + horizontalOffsetPx),
                                         size = rect2.size.copy(width = rect2.size.width + 1.sp.toPx())
                                     )
-                                } catch (e: Exception) {
-                                    // Handle potential exceptions if range is invalid (shouldn't happen often)
-                                    println("Error getting bounding box for bracket: $e")
+                                } else {
+                                     println("Warn: Bracket range outside text length, skipping draw.")
                                 }
                             }
                         }

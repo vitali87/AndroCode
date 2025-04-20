@@ -21,6 +21,9 @@ import androidx.compose.ui.text.TextRange
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import java.util.ArrayDeque
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.Job
 
 @HiltViewModel
 class EditorViewModel @Inject constructor(
@@ -104,6 +107,20 @@ class EditorViewModel @Inject constructor(
 
     // --- End Find/Replace Functionality State ---
 
+    // Debounce job for bracket matching
+    private var bracketMatchDebounceJob: Job? = null
+
+    init {
+        // Setup debounced collection for bracket matching
+        viewModelScope.launch {
+            textFieldValue
+                .debounce(300L) // Debounce for 300ms
+                .collect { value ->
+                    updateBracketMatching(value)
+                }
+        }
+    }
+
     /**
      * Attempts to open and read the content of a file identified by its URI.
      * Updates the ViewModel's state with the URI, content, loading status, and errors.
@@ -129,7 +146,7 @@ class EditorViewModel @Inject constructor(
             } catch (e: Exception) {
                 println("Error reading file content for $uri: ${e.message}")
                 _errorLoadingContent.value = "Error loading file: ${e.message}"
-                 _openedFileUri.value = null 
+                 _openedFileUri.value = null
                  _loadedFileContent.value = null
                  _currentFileContent.value = null
                  _isModified.value = false
@@ -153,8 +170,9 @@ class EditorViewModel @Inject constructor(
             // Trigger foldable region analysis when text changes
             updateFoldableRegions(newValue.text)
         }
-        // Update bracket matching based on new cursor position
-        updateBracketMatching(newValue)
+        // // Update bracket matching based on new cursor position - REMOVED direct call
+        // // The debounced collector in init {} will handle this.
+        // updateBracketMatching(newValue)
     }
 
     /**
