@@ -406,6 +406,37 @@ fun EditorView(
                             .weight(1f) // Take remaining width
                             .verticalScroll(scrollState) // Use the *shared* scroll state
                             .clipToBounds() // Clip content within the Box
+                            .drawBehind { // <-- Draw indentation guides behind text
+                                textLayoutResult?.let { layoutResult ->
+                                    // TODO: Define indent size (e.g., 4 spaces)
+                                    val spaceWidth = 8.sp.toPx() // Estimate, needs font metrics!
+                                    val indentSizePx = spaceWidth * 4
+                                    val guideColor = Color.Gray.copy(alpha = 0.2f)
+
+                                    if (indentSizePx <= 0) return@drawBehind // Avoid division by zero
+
+                                    for (lineIndex in 0 until layoutResult.lineCount) {
+                                        val lineStartOffset = layoutResult.getLineStart(lineIndex)
+                                        val lineEndOffset = layoutResult.getLineEnd(lineIndex)
+                                        val lineText = textState.text.substring(lineStartOffset, lineEndOffset)
+                                        val leadingSpaces = lineText.takeWhile { it == ' ' }.count()
+                                        val indentLevel = leadingSpaces / 4 // Simple space-based level
+
+                                        val lineTop = layoutResult.getLineTop(lineIndex)
+                                        val lineBottom = layoutResult.getLineBottom(lineIndex)
+
+                                        for (level in 1..indentLevel) {
+                                            val xOffset = level * indentSizePx
+                                            drawLine(
+                                                color = guideColor,
+                                                start = Offset(xOffset, lineTop),
+                                                end = Offset(xOffset, lineBottom),
+                                                strokeWidth = 1.dp.toPx()
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         ) {
                             innerTextField() // **MUST call innerTextField() here**
                         }
