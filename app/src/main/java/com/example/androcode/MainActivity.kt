@@ -134,6 +134,9 @@ import androidx.compose.material3.ButtonDefaults // <-- Import for button colors
 import androidx.compose.ui.geometry.Offset // Needed for tap offset
 import androidx.compose.ui.graphics.SolidColor // <-- Add import for SolidColor
 import androidx.compose.foundation.text.KeyboardOptions // <-- Add import
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -340,6 +343,7 @@ fun EditorView(
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None), // <-- Disable auto-capitalization
                 interactionSource = interactionSource, // Pass interaction source
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), // <-- Explicitly set cursor color
+                visualTransformation = CodeFoldingTransformation(foldableRegions, foldedLines), // <-- Apply folding transformation
                 decorationBox = { innerTextField -> // The crucial decorationBox lambda
                     Row(
                         Modifier
@@ -496,7 +500,7 @@ private fun LineNumberGutterInternal(
         println("[Gutter Draw] MarkerDrawX: $markerDrawX, LineNumDrawX: $lineNumDrawX")
 
         // Log the received foldable regions map once per draw
-        println("[Gutter] Received Foldable Regions: $foldableRegions")
+        println("[Gutter Debug] Received Foldable Regions: $foldableRegions") // <-- Log received map
 
         drawIntoCanvas { canvas ->
             textLayoutResult?.let { layoutResult ->
@@ -514,9 +518,9 @@ private fun LineNumberGutterInternal(
 
                     // Draw Fold Marker if applicable
                     val isFoldableStart = foldableRegions.containsKey(lineIndex)
-                    if (lineIndex == 0) { // Log specifically for the first line
-                         println("[Gutter] Line 0 isFoldableStart: $isFoldableStart")
-                    }
+                    // Log check for each line
+                    // println(\"[Gutter Debug] Line $lineIndex: isFoldableStart = $isFoldableStart\")
+
                     if (isFoldableStart) {
                         println("[Gutter] Drawing marker for line $lineIndex") // Add log here
                         val isFolded = foldedLines.contains(lineIndex)
@@ -999,5 +1003,60 @@ fun FindBar(
                 }
             }
         }
+    }
+}
+
+// --- Visual Transformation for Code Folding ---
+class CodeFoldingTransformation(
+    val foldableRegions: Map<Int, IntRange>,
+    val foldedLines: Set<Int>
+) : VisualTransformation {
+
+    override fun filter(text: AnnotatedString): TransformedText {
+        if (foldedLines.isEmpty() || foldableRegions.isEmpty()) {
+            // No folding needed, return original text and identity mapping
+            return TransformedText(text, OffsetMapping.Identity)
+        }
+
+        val originalText = text.text
+        val lines = originalText.lines()
+        val transformedText = StringBuilder()
+        var consumedOriginalLength = 0 // Track length of original text processed
+
+        // TODO: Implement complex offset mapping
+        // This basic version just removes lines, offset mapping will be incorrect
+        val offsetMapping = OffsetMapping.Identity // Placeholder!
+
+        var currentLineIndex = 0
+        while (currentLineIndex < lines.size) {
+            val line = lines[currentLineIndex]
+            if (foldedLines.contains(currentLineIndex) && foldableRegions.containsKey(currentLineIndex)) {
+                // This line starts a folded block
+                val foldRange = foldableRegions[currentLineIndex]!!
+                transformedText.append(line) // Append the first line of the folded block
+                transformedText.append(" {...}\n") // Append placeholder
+
+                // Skip the original lines that are now folded
+                val linesToSkip = foldRange.last - foldRange.first
+                currentLineIndex += linesToSkip + 1
+            } else {
+                // This line is not folded
+                transformedText.append(line)
+                // Add newline unless it's the very last line and original text didn't end with one
+                if (currentLineIndex < lines.size - 1 || originalText.endsWith('\n')) {
+                     transformedText.append('\n')
+                }
+                currentLineIndex++
+            }
+        }
+
+        // Trim trailing newline if the transformed text has one but original didn't
+        if (!originalText.endsWith('\n') && transformedText.endsWith("\n")) {
+            transformedText.setLength(transformedText.length - 1)
+        }
+
+        println("[Folding Transform] Original Length: ${originalText.length}, Transformed Length: ${transformedText.length}")
+        // TODO: Replace OffsetMapping.Identity with actual mapping logic
+        return TransformedText(AnnotatedString(transformedText.toString()), offsetMapping)
     }
 }

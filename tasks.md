@@ -38,7 +38,7 @@ Based on the development plan in `plan.md`.
     *   [x] Implement multi-cursor support.
     *   [x] Implement find functionality (within the current file).
     *   [x] Implement replace functionality (within the current file).
-    *   [ ] Implement code folding mechanism.
+    *   [~] Implement code folding mechanism (basic brace-based, no offset mapping yet).
     *   [ ] Add bracket matching visualization.
     *   [ ] Add indentation guides.
 *   [ ] **[2.2] Robust Syntax Highlighting:**
