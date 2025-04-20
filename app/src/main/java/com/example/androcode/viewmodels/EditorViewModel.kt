@@ -21,6 +21,9 @@ import androidx.compose.ui.text.TextRange
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import java.util.ArrayDeque
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.Job
 
 @HiltViewModel
 class EditorViewModel @Inject constructor(
@@ -97,7 +100,26 @@ class EditorViewModel @Inject constructor(
     val foldedLines: StateFlow<Set<Int>> = _foldedLines.asStateFlow()
     // --- End Code Folding State ---
 
+    // --- Bracket Matching State ---
+    private val _matchingBracketPair = MutableStateFlow<Pair<TextRange, TextRange>?>(null)
+    val matchingBracketPair: StateFlow<Pair<TextRange, TextRange>?> = _matchingBracketPair.asStateFlow()
+    // --- End Bracket Matching State ---
+
     // --- End Find/Replace Functionality State ---
+
+    // Debounce job for bracket matching
+    private var bracketMatchDebounceJob: Job? = null
+
+    init {
+        // Setup debounced collection for bracket matching
+        viewModelScope.launch {
+            textFieldValue
+                .debounce(300L) // Debounce for 300ms
+                .collect { value ->
+                    updateBracketMatching(value)
+                }
+        }
+    }
 
     /**
      * Attempts to open and read the content of a file identified by its URI.
@@ -124,7 +146,7 @@ class EditorViewModel @Inject constructor(
             } catch (e: Exception) {
                 println("Error reading file content for $uri: ${e.message}")
                 _errorLoadingContent.value = "Error loading file: ${e.message}"
-                 _openedFileUri.value = null 
+                 _openedFileUri.value = null
                  _loadedFileContent.value = null
                  _currentFileContent.value = null
                  _isModified.value = false
@@ -148,6 +170,9 @@ class EditorViewModel @Inject constructor(
             // Trigger foldable region analysis when text changes
             updateFoldableRegions(newValue.text)
         }
+        // // Update bracket matching based on new cursor position - REMOVED direct call
+        // // The debounced collector in init {} will handle this.
+        // updateBracketMatching(newValue)
     }
 
     /**
@@ -461,6 +486,67 @@ class EditorViewModel @Inject constructor(
     }
 
     // --- End Replace Functionality Methods ---
+
+    // --- Bracket Matching Logic ---
+
+    private fun updateBracketMatching(currentValue: TextFieldValue) {
+        val selection = currentValue.selection
+        val text = currentValue.text
+        _matchingBracketPair.value = null // Reset by default
+
+        if (!selection.collapsed || text.isEmpty()) {
+            return // Only match based on cursor position
+        }
+
+        val cursorPosition = selection.start
+
+        // Check character BEFORE the cursor
+        findMatchingBracket(cursorPosition - 1, text)?.let {
+            _matchingBracketPair.value = it
+            return
+        }
+
+        // If no match before, check character AT the cursor
+        findMatchingBracket(cursorPosition, text)?.let {
+            _matchingBracketPair.value = it
+            return
+        }
+    }
+
+    private fun findMatchingBracket(checkPosition: Int, text: String): Pair<TextRange, TextRange>? {
+        if (checkPosition < 0 || checkPosition >= text.length) return null
+
+        val charAtCursor = text[checkPosition]
+        val brackets = mapOf('(' to ')', '{' to '}', '[' to ']', ')' to '(', '}' to '{', ']' to '[')
+
+        if (!brackets.containsKey(charAtCursor)) return null // Not a bracket character
+
+        val targetChar = brackets[charAtCursor]!!
+        val searchDirection = if ("({[".contains(charAtCursor)) 1 else -1 // Forward for open, backward for close
+        var balance = searchDirection
+        var currentPosition = checkPosition + searchDirection
+
+        while (currentPosition >= 0 && currentPosition < text.length) {
+            val currentChar = text[currentPosition]
+            if (currentChar == charAtCursor) {
+                balance += searchDirection // Found same type bracket
+            } else if (currentChar == targetChar) {
+                balance -= searchDirection // Found target bracket
+                if (balance == 0) {
+                    // Found the match!
+                    val range1 = TextRange(checkPosition, checkPosition + 1)
+                    val range2 = TextRange(currentPosition, currentPosition + 1)
+                    // Ensure consistent order (e.g., opening first)
+                    return if (range1.start < range2.start) range1 to range2 else range2 to range1
+                }
+            }
+            currentPosition += searchDirection
+        }
+
+        return null // No match found
+    }
+
+    // --- End Bracket Matching Logic ---
 
     /**
      * Reads the content of a file URI using ContentResolver and DocumentFile.

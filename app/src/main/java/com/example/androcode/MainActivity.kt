@@ -137,6 +137,8 @@ import androidx.compose.foundation.text.KeyboardOptions // <-- Add import
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.draw.drawBehind // <-- Add import
+import androidx.compose.ui.geometry.Rect // <-- Add import
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -260,10 +262,14 @@ fun EditorView(
     val interactionSource = remember { MutableInteractionSource() } // Keep interaction source
     val coroutineScope = rememberCoroutineScope() // Needed for pointerInput
     var isAltKeyPressed by remember { mutableStateOf(false) } // State for Alt key
+    // Hoist gutterWidth state
+    var gutterWidth by remember { mutableStateOf(0.dp) }
 
     // Code Folding State
     val foldableRegions by editorViewModel.foldableRegions.collectAsState()
     val foldedLines by editorViewModel.foldedLines.collectAsState()
+    // Bracket Matching State
+    val matchingBrackets by editorViewModel.matchingBracketPair.collectAsState()
 
     // Define editor text style centrally - no need for remember here,
     // Compose handles recomposition based on theme changes.
@@ -335,6 +341,35 @@ fun EditorView(
                         } else {
                             false // Don't consume other key events
                         }
+                    }
+                    .drawBehind { // <-- Add drawBehind modifier
+                        textLayoutResult?.let { layoutResult ->
+                            matchingBrackets?.let { (range1, range2) ->
+                                val highlightColor = Color.Gray.copy(alpha = 0.3f) // Subtle highlight
+                                // Calculate the horizontal offset caused by gutter and spacer
+                                val horizontalOffsetPx = gutterWidth.toPx() + 8.dp.toPx()
+
+                                // Validate ranges before attempting to get bounding boxes
+                                val textLength = layoutResult.layoutInput.text.length
+                                if (range1.end <= textLength && range2.end <= textLength) { // Use range.end for safety
+                                    val rect1 = layoutResult.getBoundingBox(range1.start)
+                                    val rect2 = layoutResult.getBoundingBox(range2.start)
+                                    // Draw slightly larger rects, shifted by the horizontal offset
+                                    drawRect(
+                                        highlightColor,
+                                        topLeft = rect1.topLeft.copy(x = rect1.topLeft.x + horizontalOffsetPx),
+                                        size = rect1.size.copy(width = rect1.size.width + 1.sp.toPx())
+                                    )
+                                    drawRect(
+                                        highlightColor,
+                                        topLeft = rect2.topLeft.copy(x = rect2.topLeft.x + horizontalOffsetPx),
+                                        size = rect2.size.copy(width = rect2.size.width + 1.sp.toPx())
+                                    )
+                                } else {
+                                     println("Warn: Bracket range outside text length, skipping draw.")
+                                }
+                            }
+                        }
                     },
                 textStyle = editorTextStyle,
                 onTextLayout = { result ->
@@ -350,7 +385,7 @@ fun EditorView(
                             .padding(vertical = 4.dp)
                     ) {
                         // Line Number Gutter Composable
-                        val gutterWidth = LineNumberGutterInternal(
+                        gutterWidth = LineNumberGutterInternal(
                             modifier = Modifier
                                 .fillMaxHeight(), // Gutter should fill height
                             textLayoutResult = textLayoutResult,
