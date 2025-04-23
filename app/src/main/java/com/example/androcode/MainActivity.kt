@@ -140,10 +140,12 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.draw.drawBehind // <-- Add import
 import androidx.compose.ui.geometry.Rect // <-- Add import
 
-// --- Compose Code Editor Imports (Reverting to original) --- //
-import com.wakaztahir.codeeditor.prettify.PrettifyParser // Original import
-import com.wakaztahir.codeeditor.theme.CodeThemeType // Original import
-import com.wakaztahir.codeeditor.utils.parseCodeAsAnnotatedString // Original import
+// --- Compose Code Editor Imports --- //
+import com.wakaztahir.codeeditor.highlight.prettify.PrettifyParser
+import com.wakaztahir.codeeditor.highlight.theme.CodeTheme
+import com.wakaztahir.codeeditor.highlight.theme.DefaultTheme
+import com.wakaztahir.codeeditor.highlight.theme.MonokaiTheme
+import com.wakaztahir.codeeditor.highlight.utils.parseCodeAsAnnotatedString
 // --- End Compose Code Editor Imports --- //
 
 @AndroidEntryPoint
@@ -207,16 +209,16 @@ class MainActivity : ComponentActivity() {
                             actions = {
                                 // Helper function for save logic
                                 fun handleSaveClick() {
-                                    if (openedFileUri != null) {
-                                        // Existing file, just save
-                                        editorViewModel.saveFile()
-                                    } else {
-                                        // New file, trigger "Save As..."
-                                        // Suggest a default filename (e.g., "untitled.txt")
-                                        // We could make this smarter later based on language detection
-                                        val suggestedName = "untitled.txt"
-                                        createFileLauncher.launch(suggestedName)
-                                    }
+                                        if (openedFileUri != null) {
+                                            // Existing file, just save
+                                            editorViewModel.saveFile()
+                                        } else {
+                                            // New file, trigger "Save As..."
+                                            // Suggest a default filename (e.g., "untitled.txt")
+                                            // We could make this smarter later based on language detection
+                                            val suggestedName = "untitled.txt"
+                                            createFileLauncher.launch(suggestedName)
+                                        }
                                 }
 
                                 // Save Button
@@ -305,15 +307,13 @@ fun EditorView(
     // --- Compose Code Editor Setup --- //
     val parser = remember { PrettifyParser() }
     // TODO: Make theme configurable later via Settings
-    var themeState by remember { mutableStateOf(CodeThemeType.Monokai) }
-    val theme = remember(themeState) { themeState.theme() }
+    val theme = remember { MonokaiTheme() } // Use Monokai theme
     // --- End Setup --- //
 
     // Define editor text style (might be partially overridden by library theme)
     val editorTextStyle = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontSize = 14.sp,
-        // color = MaterialTheme.colorScheme.onSurface // Color might come from theme
     )
 
     Column(modifier = modifier) {
@@ -332,7 +332,7 @@ fun EditorView(
         } else {
             // --- Use OutlinedTextField with library's parser --- //
             OutlinedTextField(
-                value = textState, // Use the TextFieldValue from ViewModel
+                value = textState, 
                 onValueChange = {
                     // Update ViewModel with new TextFieldValue
                     // Parsing happens here to update the AnnotatedString within TextFieldValue
@@ -350,13 +350,9 @@ fun EditorView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .padding(horizontal = 8.dp, vertical = 4.dp), // Add some padding
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
                 textStyle = editorTextStyle,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
-                // REMOVED: onTextLayout, interactionSource (default is fine),
-                // REMOVED: visualTransformation (folding)
-                // REMOVED: decorationBox (gutter, drawing)
-                // REMOVED: cursorBrush (use default or theme's)
             )
         }
 
