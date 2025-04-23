@@ -90,6 +90,9 @@ dependencies {
     implementation("com.halilibo.compose-richtext:richtext-ui-material3:0.16.0")
     implementation("com.halilibo.compose-richtext:richtext-commonmark:0.16.0")
 
+    // Compose Code Editor (Android Only version from JitPack)
+    implementation("com.github.qawaz:compose-code-editor:2.0.3")
+
     // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
