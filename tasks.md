@@ -41,10 +41,10 @@ Based on the development plan in `plan.md`.
     *   [x] Implement code folding mechanism (brace-based).
     *   [x] Add bracket matching visualization.
     *   [x] Add indentation guides.
-*   [ ] **[2.2] Robust Syntax Highlighting:**
-    *   [ ] Add support for more languages (JS, Python, HTML, CSS, C/C++).
-    *   [ ] Refine highlighting rules and accuracy.
-    *   [ ] Investigate TextMate grammar compatibility if applicable.
+*   [x] **[2.2] Robust Syntax Highlighting:**
+    *   [x] Add support for more languages (JS, Python, HTML, CSS, C/C++).
+    *   ~~[ ] Refine highlighting rules and accuracy.~~
+    *   ~~[ ] Investigate TextMate grammar compatibility if applicable.~~
 *   [ ] **[2.3] Local Terminal:**
     *   [ ] Choose and integrate a terminal emulation view component.
     *   [ ] Connect terminal view to the Android local shell.
