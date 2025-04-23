@@ -205,20 +205,25 @@ class MainActivity : ComponentActivity() {
                         TopAppBar(
                             title = { Text("AndroCode") },
                             actions = {
+                                // Helper function for save logic
+                                fun handleSaveClick() {
+                                    if (openedFileUri != null) {
+                                        // Existing file, just save
+                                        editorViewModel.saveFile()
+                                    } else {
+                                        // New file, trigger "Save As..."
+                                        // Suggest a default filename (e.g., "untitled.txt")
+                                        // We could make this smarter later based on language detection
+                                        val suggestedName = "untitled.txt"
+                                        createFileLauncher.launch(suggestedName)
+                                    }
+                                }
+
                                 // Save Button
                                 IconButton(
-                                    onClick = {
-                                        if (openedFileUri != null) {
-                                            // Existing file, just save
-                                            editorViewModel.saveFile()
-                                        } else {
-                                            // New file, trigger "Save As..."
-                                            // Suggest a default filename (e.g., "untitled.txt")
-                                            // We could make this smarter later based on language detection
-                                            val suggestedName = "untitled.txt"
-                                            createFileLauncher.launch(suggestedName)
-                                        }
-                                    },
+                                    onClick = { handleSaveClick() }, // Call the helper function
+                                    // Enabled whenever content is modified.
+                                    // Allows "Save As..." for new (null URI) files.
                                     enabled = isModified
                                 ) {
                                     Icon(
@@ -367,12 +372,19 @@ fun EditorView(
 }
 
 // --- REMOVED LineNumberGutterInternal and getLineForPosition --- //
+// These were part of the previous custom editor implementation.
+// The compose-code-editor library handles line rendering internally.
+// A custom gutter might be reintroduced later if needed.
 // @Composable private fun LineNumberGutterInternal(...) { ... }
 // private fun getLineForPosition(...) { ... }
 
 // ... (TerminalView, AndroCodeShell, FileExplorerView, Dialogs, Previews remain) ...
 
 // --- REMOVED FoldingOffsetMapping and CodeFoldingTransformation --- //
+// These implemented code folding in the previous custom editor.
+// The compose-code-editor library does not currently support code folding.
+// This feature is temporarily removed until folding support is available
+// or implemented separately.
 // data class FoldMappingInfo(...) { ... }
 // class FoldingOffsetMapping(...) : OffsetMapping { ... }
 // class CodeFoldingTransformation(...) : VisualTransformation { ... }
