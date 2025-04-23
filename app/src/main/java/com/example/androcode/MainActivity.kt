@@ -140,6 +140,12 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.draw.drawBehind // <-- Add import
 import androidx.compose.ui.geometry.Rect // <-- Add import
 
+// --- Compose Code Editor Imports (Reverting to original) --- //
+import com.wakaztahir.codeeditor.prettify.PrettifyParser // Original import
+import com.wakaztahir.codeeditor.theme.CodeThemeType // Original import
+import com.wakaztahir.codeeditor.utils.parseCodeAsAnnotatedString // Original import
+// --- End Compose Code Editor Imports --- //
+
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
@@ -152,16 +158,32 @@ class MainActivity : ComponentActivity() {
                 val fileExplorerViewModel: FileExplorerViewModel = hiltViewModel() // Also get FileExplorer VM
                 val isModified by editorViewModel.isModified.collectAsState()
                 val openedFileUri by editorViewModel.openedFileUri.collectAsState()
+                val currentContent by editorViewModel.currentFileContent.collectAsState() // Get current content
                 val snackbarHostState = remember { SnackbarHostState() }
                 val scope = rememberCoroutineScope()
 
-                // Handle Save Errors
+                // Launcher for "Save As..." (creating a new file)
+                val createFileLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.CreateDocument("*/*") // Allow any MIME type initially
+                ) { uri: Uri? ->
+                    if (uri != null) {
+                        // Call the ViewModel function to perform the actual save
+                        editorViewModel.saveFileAs(uri)
+                    } else {
+                        // Handle cancellation or failure
+                        scope.launch {
+                            snackbarHostState.showSnackbar("Save As cancelled.")
+                        }
+                    }
+                }
+
+                // Handle Save Errors (including potential Save As errors via saveFileAs)
                 val errorSaving by editorViewModel.errorSaving.collectAsState()
                 LaunchedEffect(errorSaving) {
                     errorSaving?.let {
                         scope.launch {
                             snackbarHostState.showSnackbar("Save Error: $it")
-                            // Optional: Reset error in VM after showing
+                            editorViewModel.clearSaveError() // Optional: Clear error in VM
                         }
                     }
                 }
@@ -183,15 +205,31 @@ class MainActivity : ComponentActivity() {
                         TopAppBar(
                             title = { Text("AndroCode") },
                             actions = {
+                                // Helper function for save logic
+                                fun handleSaveClick() {
+                                    if (openedFileUri != null) {
+                                        // Existing file, just save
+                                        editorViewModel.saveFile()
+                                    } else {
+                                        // New file, trigger "Save As..."
+                                        // Suggest a default filename (e.g., "untitled.txt")
+                                        // We could make this smarter later based on language detection
+                                        val suggestedName = "untitled.txt"
+                                        createFileLauncher.launch(suggestedName)
+                                    }
+                                }
+
                                 // Save Button
                                 IconButton(
-                                    onClick = { editorViewModel.saveFile() },
-                                    enabled = isModified && openedFileUri != null
+                                    onClick = { handleSaveClick() }, // Call the helper function
+                                    // Enabled whenever content is modified.
+                                    // Allows "Save As..." for new (null URI) files.
+                                    enabled = isModified
                                 ) {
                                     Icon(
                                         imageVector = Icons.Filled.Save,
                                         contentDescription = "Save File",
-                                        tint = if (isModified && openedFileUri != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) // Adjust tint based on enabled state
+                                        tint = if (isModified) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f) // Adjust tint based on enabled state
                                     )
                                 }
                                 // Find Button
@@ -247,60 +285,39 @@ fun FileListItem(fileItem: FileItem, onClick: (FileItem) -> Unit) {
     HorizontalDivider(modifier = Modifier.padding(start = 56.dp)) // Indent divider
 }
 
-// --- Moved EditorView to top-level --- //
+// --- EditorView Refactored for compose-code-editor --- //
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditorView(
     modifier: Modifier = Modifier,
-    editorViewModel: EditorViewModel // Pass the whole ViewModel
+    editorViewModel: EditorViewModel
 ) {
+    // ViewModel states
     val textState by editorViewModel.textFieldValue.collectAsState()
     val isLoading by editorViewModel.isLoadingContent.collectAsState()
     val openedFileUri by editorViewModel.openedFileUri.collectAsState()
-    val scrollState = rememberScrollState() // Shared scroll state for editor + gutter
-    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
-    val interactionSource = remember { MutableInteractionSource() } // Keep interaction source
-    val coroutineScope = rememberCoroutineScope() // Needed for pointerInput
-    var isAltKeyPressed by remember { mutableStateOf(false) } // State for Alt key
-    // Hoist gutterWidth state
-    var gutterWidth by remember { mutableStateOf(0.dp) }
+    val detectedLanguage by editorViewModel.detectedLanguage.collectAsState()
+    // States for features potentially removed/reimplemented later:
+    // val foldableRegions by editorViewModel.foldableRegions.collectAsState()
+    // val foldedLines by editorViewModel.foldedLines.collectAsState()
+    // val matchingBrackets by editorViewModel.matchingBracketPair.collectAsState()
 
-    // Code Folding State
-    val foldableRegions by editorViewModel.foldableRegions.collectAsState()
-    val foldedLines by editorViewModel.foldedLines.collectAsState()
-    // Bracket Matching State
-    val matchingBrackets by editorViewModel.matchingBracketPair.collectAsState()
+    // --- Compose Code Editor Setup --- //
+    val parser = remember { PrettifyParser() }
+    // TODO: Make theme configurable later via Settings
+    var themeState by remember { mutableStateOf(CodeThemeType.Monokai) }
+    val theme = remember(themeState) { themeState.theme() }
+    // --- End Setup --- //
 
-    // Define editor text style centrally - no need for remember here,
-    // Compose handles recomposition based on theme changes.
+    // Define editor text style (might be partially overridden by library theme)
     val editorTextStyle = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontSize = 14.sp,
-        color = MaterialTheme.colorScheme.onSurface // Directly use theme color
+        // color = MaterialTheme.colorScheme.onSurface // Color might come from theme
     )
 
-    // Effect to scroll to the selection when triggered by the ViewModel
-    LaunchedEffect(Unit) {
-        editorViewModel.scrollToSelectionEvent.collect {
-            coroutineScope.launch {
-                textLayoutResult?.let { layoutResult ->
-                    val selection = textState.selection
-                    if (selection.collapsed) { // Only scroll if it's a cursor
-                        val cursorRect = layoutResult.getCursorRect(selection.start)
-                        // Basic scroll logic: scroll vertically to bring the cursor into view
-                        // More sophisticated logic could check if it's already visible.
-                        val line = layoutResult.getLineForOffset(selection.start)
-                        val lineTop = layoutResult.getLineTop(line)
-                        // Approximate scroll position - might need adjustment
-                        scrollState.animateScrollTo(lineTop.toInt())
-                    }
-                    // TODO: Add logic for non-collapsed selections if needed (e.g., scroll to start)
-                }
-            }
-        }
-    }
-
     Column(modifier = modifier) {
+        // File name header
         Text(
             text = openedFileUri?.lastPathSegment ?: "Editor",
             style = MaterialTheme.typography.labelSmall,
@@ -313,156 +330,37 @@ fun EditorView(
                 CircularProgressIndicator()
             }
         } else {
-            // Core editor layout using BasicTextField and decorationBox
-            BasicTextField(
-                value = textState,
+            // --- Use OutlinedTextField with library's parser --- //
+            OutlinedTextField(
+                value = textState, // Use the TextFieldValue from ViewModel
                 onValueChange = {
-                    // Basic check to prevent potential crash with invalid TextLayoutResult
-                    // In a real scenario, more robust error handling might be needed
-                    if (it.text.length <= 100000) { // Arbitrary limit, adjust as needed
-                         editorViewModel.onTextFieldValueChange(it)
-                    } else {
-                        // Handle oversized text - perhaps show a message or trim
-                        // For now, just reset to previous valid state to avoid crash
-                        editorViewModel.onTextFieldValueChange(
-                            textState.copy(text = textState.text.substring(0, 100000))
+                    // Update ViewModel with new TextFieldValue
+                    // Parsing happens here to update the AnnotatedString within TextFieldValue
+                    editorViewModel.onTextFieldValueChange(
+                        it.copy(
+                            annotatedString = parseCodeAsAnnotatedString(
+                                parser = parser,
+                                theme = theme,
+                                lang = detectedLanguage,
+                                code = it.text
+                            )
                         )
-                         println("Text length limit reached.") // Log or show snackbar
-                    }
+                    )
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f) // Ensure it takes available vertical space
-                    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small)
-                    .onKeyEvent { keyEvent: KeyEvent -> // Handle key events for Alt
-                        if (keyEvent.key == Key.AltLeft || keyEvent.key == Key.AltRight) {
-                            isAltKeyPressed = keyEvent.type == KeyEventType.KeyDown
-                            true // Consume the event
-                        } else {
-                            false // Don't consume other key events
-                        }
-                    }
-                    .drawBehind { // <-- Add drawBehind modifier
-                        textLayoutResult?.let { layoutResult ->
-                            matchingBrackets?.let { (range1, range2) ->
-                                val highlightColor = Color.Gray.copy(alpha = 0.3f) // Subtle highlight
-                                // Calculate the horizontal offset caused by gutter and spacer
-                                val horizontalOffsetPx = gutterWidth.toPx() + 8.dp.toPx()
-
-                                // Validate ranges before attempting to get bounding boxes
-                                val textLength = layoutResult.layoutInput.text.length
-                                if (range1.end <= textLength && range2.end <= textLength) { // Use range.end for safety
-                                    val rect1 = layoutResult.getBoundingBox(range1.start)
-                                    val rect2 = layoutResult.getBoundingBox(range2.start)
-                                    // Draw slightly larger rects, shifted by the horizontal offset
-                                    drawRect(
-                                        highlightColor,
-                                        topLeft = rect1.topLeft.copy(x = rect1.topLeft.x + horizontalOffsetPx),
-                                        size = rect1.size.copy(width = rect1.size.width + 1.sp.toPx())
-                                    )
-                                    drawRect(
-                                        highlightColor,
-                                        topLeft = rect2.topLeft.copy(x = rect2.topLeft.x + horizontalOffsetPx),
-                                        size = rect2.size.copy(width = rect2.size.width + 1.sp.toPx())
-                                    )
-                                } else {
-                                     println("Warn: Bracket range outside text length, skipping draw.")
-                                }
-                            }
-                        }
-                    },
+                    .weight(1f)
+                    .padding(horizontal = 8.dp, vertical = 4.dp), // Add some padding
                 textStyle = editorTextStyle,
-                onTextLayout = { result ->
-                    textLayoutResult = result // Capture layout result for gutter and scrolling
-                },
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None), // <-- Disable auto-capitalization
-                interactionSource = interactionSource, // Pass interaction source
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary), // <-- Explicitly set cursor color
-                visualTransformation = CodeFoldingTransformation(foldableRegions, foldedLines), // <-- Apply folding transformation
-                decorationBox = { innerTextField -> // The crucial decorationBox lambda
-                    Row(
-                        Modifier
-                            .padding(vertical = 4.dp)
-                    ) {
-                        // Line Number Gutter Composable
-                        gutterWidth = LineNumberGutterInternal(
-                            modifier = Modifier
-                                .fillMaxHeight(), // Gutter should fill height
-                            textLayoutResult = textLayoutResult,
-                            textStyle = editorTextStyle, // Pass text style for metrics
-                            scrollState = scrollState, // Pass the *shared* scroll state
-                            foldableRegions = foldableRegions, // Pass folding state
-                            foldedLines = foldedLines,       // Pass folding state
-                            onToggleFold = { lineIndex -> // Pass toggle callback
-                                editorViewModel.toggleFold(lineIndex)
-                            }
-                        )
-
-                        // Explicit spacer between gutter and text field
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // The actual text field content, wrapped for scrolling
-                        Box(modifier = Modifier
-                            .weight(1f) // Take remaining width
-                            .verticalScroll(scrollState) // Use the *shared* scroll state
-                            .clipToBounds() // Clip content within the Box
-                            .drawBehind { // <-- Draw indentation guides behind text
-                                textLayoutResult?.let { layoutResult ->
-                                    // Get Paint object to measure text accurately
-                                    val textPaint = Paint().apply {
-                                        isAntiAlias = true
-                                        typeface = Typeface.MONOSPACE // Ensure consistent font
-                                        textSize = editorTextStyle.fontSize.toPx() // Use editor's font size
-                                    }
-                                    val spaceWidthPx = textPaint.measureText(" ")
-                                    val indentSizeSpaces = 4 // TODO: Make configurable
-                                    val indentStepPx = spaceWidthPx * indentSizeSpaces
-                                    val guideColor = Color.Gray.copy(alpha = 0.2f)
-
-                                    if (indentStepPx <= 0) return@drawBehind // Avoid issues if space width is zero
-
-                                    // Optimize: Calculate visible line range
-                                    val firstVisibleLine = layoutResult.getLineForVerticalPosition(0f)
-                                    val lastVisibleLine = layoutResult.getLineForVerticalPosition(size.height)
-                                    // Add a buffer in case of partial lines, ensure range is valid
-                                    val startLine = maxOf(0, firstVisibleLine - 1)
-                                    val endLine = minOf(layoutResult.lineCount - 1, lastVisibleLine + 1)
-
-                                    // Draw guides only for the visible lines
-                                    for (lineIndex in startLine..endLine) {
-                                        val lineStartOffset = layoutResult.getLineStart(lineIndex)
-                                        val lineEndOffset = layoutResult.getLineEnd(lineIndex)
-                                        // Check for invalid range before substring
-                                        if (lineStartOffset >= lineEndOffset) continue 
-                                        val lineText = textState.text.substring(lineStartOffset, lineEndOffset)
-                                        val leadingSpaces = lineText.takeWhile { it == ' ' }.count()
-                                        // Calculate indent level based on configured size
-                                        val indentLevel = leadingSpaces / indentSizeSpaces 
-
-                                        val lineTop = layoutResult.getLineTop(lineIndex)
-                                        val lineBottom = layoutResult.getLineBottom(lineIndex)
-
-                                        for (level in 1..indentLevel) {
-                                            val xOffset = level * indentStepPx
-                                            drawLine(
-                                                color = guideColor,
-                                                start = Offset(xOffset, lineTop),
-                                                end = Offset(xOffset, lineBottom),
-                                                strokeWidth = 1.dp.toPx()
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        ) {
-                            innerTextField() // **MUST call innerTextField() here**
-                        }
-                    }
-                }
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
+                // REMOVED: onTextLayout, interactionSource (default is fine),
+                // REMOVED: visualTransformation (folding)
+                // REMOVED: decorationBox (gutter, drawing)
+                // REMOVED: cursorBrush (use default or theme's)
             )
         }
 
-        // Placeholder for FindBar if needed later
+        // Find/Replace Bar (kept as is for now)
         val isFindBarVisible by editorViewModel.isFindBarVisible.collectAsState()
         if (isFindBarVisible) {
             FindBar(
@@ -473,178 +371,25 @@ fun EditorView(
     }
 }
 
-// --- Refactored LineNumberGutterInternal ---
-@Composable
-private fun LineNumberGutterInternal(
-    modifier: Modifier = Modifier,
-    textLayoutResult: TextLayoutResult?,
-    textStyle: TextStyle, // Receive textStyle for accurate metrics
-    scrollState: ScrollState, // Receive the *shared* scroll state
-    foldableRegions: Map<Int, IntRange>, // Receive foldable regions
-    foldedLines: Set<Int>,               // Receive set of folded lines
-    onToggleFold: (Int) -> Unit         // Callback to toggle fold state
-): Dp { // <-- Return the calculated Dp width
-    val density = LocalDensity.current
-    val gutterColor = MaterialTheme.colorScheme.outline
-    val markerColor = MaterialTheme.colorScheme.primary // Use a distinct color for testing
+// --- REMOVED LineNumberGutterInternal and getLineForPosition --- //
+// These were part of the previous custom editor implementation.
+// The compose-code-editor library handles line rendering internally.
+// A custom gutter might be reintroduced later if needed.
+// @Composable private fun LineNumberGutterInternal(...) { ... }
+// private fun getLineForPosition(...) { ... }
 
-    // --- Calculate context-dependent values DIRECTLY (no unnecessary remember) --- //
-    val textSizePx: Float
-    val lineNumPaddingPx: Float
-    val gutterPaddingPx: Float
-    val gutterWidthDp: Dp
-    val markerSizePx: Float
-    val markerPaddingPx: Float
-    with(density) {
-        textSizePx = textStyle.fontSize.toPx()
-        lineNumPaddingPx = 4.dp.toPx() // Keep right padding inside gutter
-        gutterPaddingPx = 2.dp.toPx()  // Reduced left padding further (from 4.dp)
-        // Calculate marker size and padding based on font size
-        markerSizePx = textSizePx * 0.7f // Slightly larger marker
-        markerPaddingPx = 4.dp.toPx() // More padding around the marker
-    }
-    val gutterColorArgb = gutterColor.toArgb()
-    val markerColorArgb = markerColor.toArgb()
+// ... (TerminalView, AndroCodeShell, FileExplorerView, Dialogs, Previews remain) ...
 
-    // Remember Paint object, keyed by primitive values
-    val lineNumberPaint = remember(textSizePx, gutterColorArgb) {
-        Paint().apply {
-            isAntiAlias = true
-            textAlign = android.graphics.Paint.Align.RIGHT
-            typeface = Typeface.MONOSPACE
-            textSize = textSizePx
-            color = gutterColorArgb
-        }
-    }
+// --- REMOVED FoldingOffsetMapping and CodeFoldingTransformation --- //
+// These implemented code folding in the previous custom editor.
+// The compose-code-editor library does not currently support code folding.
+// This feature is temporarily removed until folding support is available
+// or implemented separately.
+// data class FoldMappingInfo(...) { ... }
+// class FoldingOffsetMapping(...) : OffsetMapping { ... }
+// class CodeFoldingTransformation(...) : VisualTransformation { ... }
 
-    val maxLineNumberText = remember(textLayoutResult?.lineCount) {
-        (textLayoutResult?.lineCount ?: 1).toString()
-    }
-    val maxLineNumberWidthPx = remember(lineNumberPaint, maxLineNumberText) {
-        lineNumberPaint.measureText(maxLineNumberText)
-    }
-
-    // Separate Paint for marker for potential styling later
-    val markerPaint = remember(textSizePx, markerColorArgb) { // Keyed by marker color
-         Paint().apply {
-            isAntiAlias = true
-            textAlign = android.graphics.Paint.Align.CENTER // Center align marker
-            typeface = Typeface.MONOSPACE
-            textSize = markerSizePx // Use marker size
-            color = markerColorArgb // Use marker color
-        }
-    }
-
-    // Calculate final gutter width in Dp, accounting for marker and line number areas
-    with(density) {
-        // val lineNumberWidthPx = lineNumberPaint.measureText(maxLineNumberText)
-        // Width = LeftPadding + MarkerWidth + SpaceBetween + LineNumberWidth + RightPadding
-        // Simplified: GutterPadding + MarkerWidth + Space + LineNumberWidth + Padding
-        val spaceBetweenMarkerAndNumber = 4.dp.toPx()
-        val totalWidthPx = gutterPaddingPx + markerSizePx + spaceBetweenMarkerAndNumber + maxLineNumberWidthPx + lineNumPaddingPx
-        gutterWidthDp = totalWidthPx.toDp()
-    }
-
-    Canvas(
-        modifier = modifier
-            .width(gutterWidthDp) // Use NEW calculated Dp width
-            .clipToBounds() // <-- Moved clipToBounds AFTER pointerInput
-            .pointerInput(Unit) { // <-- Moved pointerInput HERE
-                detectTapGestures { offset ->
-                    textLayoutResult?.let { layoutResult ->
-                        val lineNumber = getLineForPosition(offset.y, layoutResult)
-                        if (lineNumber != -1 && foldableRegions.containsKey(lineNumber)) {
-                            // Use the variables directly available in this scope
-                            val markerCenterX = gutterPaddingPx + markerSizePx / 2f
-                            // Increase hit area slightly for easier tapping
-                            val hitAreaPadding = 4.dp.toPx()
-                            val markerHitAreaStartX = markerCenterX - (markerSizePx / 2f) - hitAreaPadding
-                            val markerHitAreaEndX = markerCenterX + (markerSizePx / 2f) + hitAreaPadding
-                            println("[Gutter Click] OffsetX: ${offset.x}, HitArea: $markerHitAreaStartX..$markerHitAreaEndX (Line: $lineNumber)")
-                            // Check if the tap is within the calculated hit area
-                            if (offset.x >= markerHitAreaStartX && offset.x <= markerHitAreaEndX) {
-                                println("[Gutter Click] Hit detected! Calling onToggleFold for line $lineNumber")
-                                onToggleFold(lineNumber) // Call the passed lambda
-                            } else {
-                                println("[Gutter Click] Missed hit area for line $lineNumber")
-                            }
-                        }
-                    }
-                }
-            }
-    ) {
-        // Marker X is positioned relative to the left edge now
-        val markerDrawX = gutterPaddingPx + markerSizePx / 2f
-        // Line number X is positioned relative to the right edge
-        val lineNumDrawX = size.width - lineNumPaddingPx
-
-        // Log the sizes and positions
-        println("[Gutter Draw] Canvas size.width: ${size.width}, gutterWidthDp: ${gutterWidthDp.toPx()}")
-        println("[Gutter Draw] MarkerDrawX: $markerDrawX, LineNumDrawX: $lineNumDrawX")
-
-        // Log the received foldable regions map once per draw
-        println("[Gutter Debug] Received Foldable Regions: $foldableRegions") // <-- Log received map
-
-        drawIntoCanvas { canvas ->
-            textLayoutResult?.let { layoutResult ->
-                val lineCount = layoutResult.lineCount
-                val fontMetrics = lineNumberPaint.fontMetrics // Get metrics once
-
-                for (lineIndex in 0 until lineCount) {
-                    val lineNum = (lineIndex + 1).toString()
-                    val lineTop = layoutResult.getLineTop(lineIndex)
-                    val lineBottom = layoutResult.getLineBottom(lineIndex)
-
-                    // Center the text vertically
-                    val lineCenterY = lineTop + (lineBottom - lineTop) / 2f
-                    val textBaselineY = lineCenterY - (fontMetrics.descent + fontMetrics.ascent) / 2f
-
-                    // Draw Fold Marker if applicable
-                    val isFoldableStart = foldableRegions.containsKey(lineIndex)
-                    // Log check for each line
-                    // println(\"[Gutter Debug] Line $lineIndex: isFoldableStart = $isFoldableStart\")
-
-                    if (isFoldableStart) {
-                        println("[Gutter] Drawing marker for line $lineIndex") // Add log here
-                        val isFolded = foldedLines.contains(lineIndex)
-                        val markerChar = if (isFolded) "+" else "-"
-                        // Draw the marker slightly left of the line number
-                        canvas.nativeCanvas.drawText(
-                            markerChar,
-                            markerDrawX,
-                            textBaselineY, // Align marker baseline with number baseline
-                            markerPaint // Use separate marker paint
-                        )
-                    }
-
-                    // Draw the line number
-                    canvas.nativeCanvas.drawText(
-                        lineNum,
-                        lineNumDrawX, // Use pre-calculated X position
-                        textBaselineY,
-                        lineNumberPaint
-                    )
-                }
-            }
-        }
-    }
-
-    return gutterWidthDp // <-- Return the calculated width
-}
-
-// Helper function to determine line number from Y-offset
-// Removed FontMetrics parameter as it's not needed for this logic
-private fun getLineForPosition(y: Float, layoutResult: TextLayoutResult): Int {
-    for (lineIndex in 0 until layoutResult.lineCount) {
-        val lineTop = layoutResult.getLineTop(lineIndex)
-        val lineBottom = layoutResult.getLineBottom(lineIndex)
-        if (y >= lineTop && y < lineBottom) {
-            return lineIndex
-        }
-    }
-    // If no line contains the Y-coordinate (e.g., click below last line)
-    return -1
-}
+// ... (Rest of the file: FindBar, etc.) ...
 
 @Composable
 fun TerminalView(modifier: Modifier = Modifier) {
@@ -1086,169 +831,5 @@ fun FindBar(
                 }
             }
         }
-    }
-}
-
-// --- Data class for mapping info ---
-data class FoldMappingInfo(
-    val originalFoldStartOffset: Int,
-    val originalFoldEndOffset: Int,
-    val transformedPlaceholderStartOffset: Int,
-    val transformedPlaceholderEndOffset: Int
-)
-
-// --- Custom OffsetMapping ---
-class FoldingOffsetMapping(private val mappingInfoList: List<FoldMappingInfo>) : OffsetMapping {
-
-    override fun originalToTransformed(offset: Int): Int {
-        var currentDelta = 0
-        for (info in mappingInfoList) {
-            val foldDelta = (info.transformedPlaceholderEndOffset - info.transformedPlaceholderStartOffset) -
-                            (info.originalFoldEndOffset - info.originalFoldStartOffset)
-
-            if (offset <= info.originalFoldStartOffset) {
-                // Offset is before this folded region, apply accumulated delta and we're done
-                return offset + currentDelta
-            }
-
-            if (offset > info.originalFoldStartOffset && offset < info.originalFoldEndOffset) {
-                // Offset is strictly *inside* the folded region in the original text.
-                // Map it to the start of the placeholder in the transformed text.
-                return info.transformedPlaceholderStartOffset + currentDelta
-            }
-
-            // Offset is at or after the end of this folded region in the original text.
-            // Accumulate the delta from this fold and continue.
-            currentDelta += foldDelta
-        }
-        // Offset is after all folded regions
-        return offset + currentDelta
-    }
-
-    override fun transformedToOriginal(offset: Int): Int {
-        var currentDelta = 0
-        for (info in mappingInfoList) {
-            val foldDelta = (info.transformedPlaceholderEndOffset - info.transformedPlaceholderStartOffset) -
-                            (info.originalFoldEndOffset - info.originalFoldStartOffset)
-            val transformedStart = info.transformedPlaceholderStartOffset + currentDelta
-            val transformedEnd = info.transformedPlaceholderEndOffset + currentDelta
-
-            if (offset <= transformedStart) {
-                // Offset is before this placeholder, apply accumulated delta (in reverse) and we're done
-                return offset - currentDelta
-            }
-
-            if (offset > transformedStart && offset < transformedEnd) {
-                // Offset is strictly *inside* the placeholder in the transformed text.
-                // Map it to the start of the original folded region.
-                return info.originalFoldStartOffset
-            }
-
-            // Offset is at or after the end of this placeholder.
-            // Accumulate the delta and continue.
-            currentDelta += foldDelta
-        }
-        // Offset is after all placeholders
-        return offset - currentDelta
-    }
-}
-
-// --- Visual Transformation for Code Folding ---
-class CodeFoldingTransformation(
-    val foldableRegions: Map<Int, IntRange>,
-    val foldedLines: Set<Int>
-) : VisualTransformation {
-
-    override fun filter(text: AnnotatedString): TransformedText {
-        if (foldedLines.isEmpty() || foldableRegions.isEmpty()) {
-            // No folding needed, return original text and identity mapping
-            return TransformedText(text, OffsetMapping.Identity)
-        }
-
-        val originalText = text.text
-        val lines = originalText.lines()
-        val transformedText = StringBuilder()
-        val foldMappings = mutableListOf<FoldMappingInfo>()
-        var currentOriginalOffset = 0
-        var currentTransformedOffset = 0
-
-        var currentLineIndex = 0
-        while (currentLineIndex < lines.size) {
-            val line = lines[currentLineIndex]
-            val lineLengthWithNewline = line.length + 1 // Account for newline
-
-            if (foldedLines.contains(currentLineIndex) && foldableRegions.containsKey(currentLineIndex)) {
-                // This line starts a folded block
-                val foldRange = foldableRegions[currentLineIndex]!!
-                val placeholder = " {...}\n"
-                val placeholderLength = placeholder.length
-
-                // 1. Append the first line (visible part)
-                transformedText.append(line)
-                transformedText.append('\n') // Add newline for the first visible line
-                val firstLineTransformedEndOffset = currentTransformedOffset + lineLengthWithNewline
-
-                // Calculate original offsets for the entire folded block
-                val originalFoldStartOffset = currentOriginalOffset
-                var originalFoldEndOffset = originalFoldStartOffset + lineLengthWithNewline
-                val linesToSkip = foldRange.last - foldRange.first
-                for (i in 1..linesToSkip) {
-                    if (currentLineIndex + i < lines.size) {
-                        originalFoldEndOffset += lines[currentLineIndex + i].length + 1
-                    }
-                }
-                 // Adjust if last line doesn't end with newline in original
-                if (currentLineIndex + linesToSkip == lines.size - 1 && !originalText.endsWith('\n')) {
-                    originalFoldEndOffset--
-                }
-
-                // 2. Append the placeholder
-                transformedText.append(placeholder.removeSuffix("\n")) // Append placeholder without newline yet
-                val transformedPlaceholderStartOffset = firstLineTransformedEndOffset
-                val transformedPlaceholderEndOffset = transformedPlaceholderStartOffset + placeholderLength -1 // -1 for newline
-
-                 // Add newline for placeholder only if block isn't last line OR original ends with newline
-                if (foldRange.last < lines.size - 1 || originalText.endsWith('\n')) {
-                    transformedText.append('\n')
-                    // transformedPlaceholderEndOffset++ // End offset includes newline if added
-                }
-
-                // Store mapping info
-                foldMappings.add(
-                    FoldMappingInfo(
-                        originalFoldStartOffset = originalFoldStartOffset,
-                        originalFoldEndOffset = originalFoldEndOffset,
-                        transformedPlaceholderStartOffset = transformedPlaceholderStartOffset,
-                        transformedPlaceholderEndOffset = transformedPlaceholderEndOffset + (if(transformedText.endsWith('\n')) 1 else 0) // Adjust end offset based on newline
-                    )
-                )
-
-                // Update offsets and skip lines
-                currentOriginalOffset = originalFoldEndOffset
-                currentTransformedOffset = transformedPlaceholderStartOffset + placeholderLength // Use actual length added
-                currentLineIndex += linesToSkip + 1
-
-            } else {
-                // This line is not folded - append normally
-                transformedText.append(line)
-                 // Add newline unless it's the very last line and original text didn't end with one
-                if (currentLineIndex < lines.size - 1 || originalText.endsWith('\n')) {
-                     transformedText.append('\n')
-                     currentOriginalOffset += lineLengthWithNewline
-                     currentTransformedOffset += lineLengthWithNewline
-                } else {
-                    currentOriginalOffset += line.length
-                    currentTransformedOffset += line.length
-                }
-                currentLineIndex++
-            }
-        }
-
-        // Build the OffsetMapping instance (still has placeholder logic inside)
-        val offsetMapping = FoldingOffsetMapping(foldMappings)
-
-        // println("[Folding Transform] Original Length: ${originalText.length}, Transformed Length: ${transformedText.length}") // Removed log
-        // TODO: Replace OffsetMapping.Identity with actual mapping logic
-        return TransformedText(AnnotatedString(transformedText.toString()), offsetMapping)
     }
 }

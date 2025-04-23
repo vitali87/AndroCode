@@ -2,7 +2,6 @@ package com.example.androcode.viewmodels
 
 import android.app.Application
 import android.net.Uri
-import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,9 +20,10 @@ import androidx.compose.ui.text.TextRange
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import java.util.ArrayDeque
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.Job
+import androidx.compose.ui.text.AnnotatedString
+import com.wakaztahir.codeeditor.model.CodeLang
 
 @HiltViewModel
 class EditorViewModel @Inject constructor(
@@ -37,7 +37,7 @@ class EditorViewModel @Inject constructor(
     // State for the content *as loaded from the file*
     private val _loadedFileContent = MutableStateFlow<String?>(null)
 
-    // State for the *current content* in the editor
+    // State for the *current content* in the editor (raw text)
     private val _currentFileContent = MutableStateFlow<String?>(null)
     val currentFileContent: StateFlow<String?> = _currentFileContent.asStateFlow()
 
@@ -64,6 +64,11 @@ class EditorViewModel @Inject constructor(
     // State for the TextFieldValue (includes text, selection, composition)
     private val _textFieldValue = MutableStateFlow(TextFieldValue(""))
     val textFieldValue: StateFlow<TextFieldValue> = _textFieldValue.asStateFlow()
+
+    // --- DETECTED LANGUAGE STATE --- //
+    private val _detectedLanguage = MutableStateFlow<CodeLang>(CodeLang.Default)
+    val detectedLanguage: StateFlow<CodeLang> = _detectedLanguage.asStateFlow()
+    // --- END DETECTED LANGUAGE STATE --- //
 
     // State for additional selections (for multi-cursor)
     private val _additionalSelections = MutableStateFlow<List<TextRange>>(emptyList())
@@ -105,16 +110,14 @@ class EditorViewModel @Inject constructor(
     val matchingBracketPair: StateFlow<Pair<TextRange, TextRange>?> = _matchingBracketPair.asStateFlow()
     // --- End Bracket Matching State ---
 
-    // --- End Find/Replace Functionality State ---
-
     // Debounce job for bracket matching
     private var bracketMatchDebounceJob: Job? = null
 
     init {
-        // Setup debounced collection for bracket matching
+        // Debounced bracket matching (remains the same)
         viewModelScope.launch {
             textFieldValue
-                .debounce(300L) // Debounce for 300ms
+                .debounce(300L)
                 .collect { value ->
                     updateBracketMatching(value)
                 }
@@ -123,34 +126,42 @@ class EditorViewModel @Inject constructor(
 
     /**
      * Attempts to open and read the content of a file identified by its URI.
-     * Updates the ViewModel's state with the URI, content, loading status, and errors.
      */
     fun openFile(uri: Uri) {
-        // Prevent reloading the same file unnecessarily
-        if (uri == _openedFileUri.value && !_isModified.value) { 
-             println("File already open and unmodified: $uri")
-             return
-        }
-
+        if (uri == _openedFileUri.value && !_isModified.value) { return }
         viewModelScope.launch {
             _isLoadingContent.value = true
-            _errorLoadingContent.value = null // Clear previous errors
+            _errorLoadingContent.value = null
             try {
                 val content = readFileContent(uri)
                 _loadedFileContent.value = content
                 _currentFileContent.value = content
-                _textFieldValue.value = TextFieldValue(content) // Initialize TextFieldValue
                 _openedFileUri.value = uri
-                _isModified.value = false // Reset modified state on open
-                updateFoldableRegions(content) // <-- Analyze regions on open
+                _isModified.value = false
+
+                // Detect language and update state
+                detectLanguage(uri) // Just detect language
+
+                // Initial TextFieldValue needs to be set AFTER language detection
+                // The UI will now be responsible for creating the initial AnnotatedString
+                // using the detected language and the parseCodeAsAnnotatedString function.
+                // We only provide the raw text and the language.
+                _textFieldValue.value = TextFieldValue(content)
+
+                // Update folding regions based on raw content
+                updateFoldableRegions(content)
+
             } catch (e: Exception) {
-                println("Error reading file content for $uri: ${e.message}")
-                _errorLoadingContent.value = "Error loading file: ${e.message}"
+                 println("Error reading file content for $uri: ${e.message}")
+                 _errorLoadingContent.value = "Error loading file: ${e.message}"
+                 // Reset state on error
                  _openedFileUri.value = null
                  _loadedFileContent.value = null
                  _currentFileContent.value = null
+                 _textFieldValue.value = TextFieldValue("")
+                 _detectedLanguage.value = CodeLang.Default
                  _isModified.value = false
-                 _foldableRegions.value = emptyMap() // Clear regions on error
+                 _foldableRegions.value = emptyMap()
                  _foldedLines.value = emptySet()
             } finally {
                 _isLoadingContent.value = false
@@ -159,50 +170,102 @@ class EditorViewModel @Inject constructor(
     }
 
     // Call this when the text content changes in the UI
-    // Needs to handle TextFieldValue for BasicTextField
+    // NOTE: The UI (MainActivity) will now handle parsing the text for highlighting
+    //       based on the detected language and updating the TextFieldValue's AnnotatedString.
+    //       This ViewModel just manages the raw text and the selected language.
     fun onTextFieldValueChange(newValue: TextFieldValue) {
         val oldText = _textFieldValue.value.text
+        // Update the TextFieldValue state directly. UI listener handles parsing.
         _textFieldValue.value = newValue
-        // Only update current content and modified flag if text actually changed
+
         if (oldText != newValue.text) {
-            _currentFileContent.value = newValue.text
-            _isModified.value = _loadedFileContent.value != newValue.text
-            // Trigger foldable region analysis when text changes
-            updateFoldableRegions(newValue.text)
+            val newText = newValue.text
+            _currentFileContent.value = newText // Update raw content
+            _isModified.value = _loadedFileContent.value != newText
+            // Update folding regions based on raw text change
+            // TODO: Consider if folding needs debouncing/sampling again
+            updateFoldableRegions(newText)
         }
-        // // Update bracket matching based on new cursor position - REMOVED direct call
-        // // The debounced collector in init {} will handle this.
-        // updateBracketMatching(newValue)
+        // Bracket matching is handled by its own debounced collector in init
+    }
+
+    /**
+     * Detects the language based on the file extension and updates the state.
+     */
+    private fun detectLanguage(uri: Uri?) {
+        val extension = uri?.lastPathSegment?.substringAfterLast('.', "")
+        _detectedLanguage.value = CodeLang.values().find { lang ->
+            lang.extensions.any { ext -> ext.equals(extension, ignoreCase = true) }
+        } ?: CodeLang.Default // Default if no match found
+        println("Detected language: ${_detectedLanguage.value} for extension: $extension")
     }
 
     /**
      * Saves the current editor content back to the originally opened file URI.
+     * Assumes _openedFileUri is not null.
      */
     fun saveFile() {
         val uriToSave = _openedFileUri.value
         val contentToSave = _currentFileContent.value
 
         // Check if there's content and a URI to save to
-        if (uriToSave != null && contentToSave != null) { 
-            viewModelScope.launch {
-                _isSaving.value = true
-                _errorSaving.value = null
-                try {
-                    writeFileContent(uriToSave, contentToSave)
-                    // Update loaded content state after successful save
-                    _loadedFileContent.value = contentToSave
-                    _isModified.value = false
-                    println("File saved successfully: $uriToSave")
-                } catch (e: Exception) {
-                    println("Error saving file $uriToSave: ${e.message}")
-                    _errorSaving.value = "Error saving file: ${e.message}"
-                } finally {
-                    _isSaving.value = false
-                }
-            }
+        if (uriToSave != null && contentToSave != null) {
+            performSave(uriToSave, contentToSave)
         } else {
-            _errorSaving.value = "No file open or no content to save."
+            // This path should ideally not be hit if the UI logic is correct
+            _errorSaving.value = "Save Error: No file open or no content."
+            println("[Save Error] saveFile() called with null URI or content.")
         }
+    }
+
+    /**
+     * Saves the current editor content to a *new* file URI, typically obtained
+     * from an ACTION_CREATE_DOCUMENT intent (Save As).
+     * Updates the internal state to reflect the newly saved file.
+     */
+    fun saveFileAs(newUri: Uri) {
+        val contentToSave = _currentFileContent.value
+        if (contentToSave != null) {
+            performSave(newUri, contentToSave, isSaveAs = true)
+        } else {
+            _errorSaving.value = "Save As Error: No content to save."
+            println("[Save Error] saveFileAs() called with null content.")
+        }
+    }
+
+    /**
+     * Internal helper function to perform the actual file writing and state update.
+     * Handles both regular Save and Save As scenarios.
+     */
+    private fun performSave(uri: Uri, content: String, isSaveAs: Boolean = false) {
+        viewModelScope.launch {
+            _isSaving.value = true
+            _errorSaving.value = null // Clear previous error
+            try {
+                writeFileContent(uri, content)
+                _loadedFileContent.value = content
+                _openedFileUri.value = uri
+                _isModified.value = false
+                if (isSaveAs) {
+                    detectLanguage(uri) // Re-detect language on Save As
+                    // No need to call updateHighlighting - UI handles it
+                }
+                println("File ${if (isSaveAs) "saved as" else "saved"} successfully: $uri")
+            } catch (e: Exception) {
+                val action = if (isSaveAs) "Save As" else "Save"
+                println("Error during $action for $uri: ${e.message}")
+                _errorSaving.value = "Error during $action: ${e.message}"
+            } finally {
+                _isSaving.value = false
+            }
+        }
+    }
+
+    /**
+     * Clears the save error message. Can be called from UI after displaying the error.
+     */
+    fun clearSaveError() {
+        _errorSaving.value = null
     }
 
     // --- Find Functionality Methods ---
@@ -567,15 +630,17 @@ class EditorViewModel @Inject constructor(
      */
     private suspend fun writeFileContent(fileUri: Uri, content: String) = withContext(Dispatchers.IO) {
         try {
-            application.contentResolver.openOutputStream(fileUri)?.use { outputStream ->
+            val contentResolver = application.contentResolver
+            // Use "wt" mode to truncate and write (overwrite)
+            contentResolver.openOutputStream(fileUri, "wt")?.use { outputStream ->
                 OutputStreamWriter(outputStream).use { writer ->
                     writer.write(content)
                 }
             } ?: throw Exception("Could not open output stream for URI.")
-        } catch (e: SecurityException) {
-            throw Exception("Permission denied when writing to file: ${e.message}", e)
         } catch (e: Exception) {
-            throw Exception("Failed to write file content: ${e.message}", e)
+            // Log the specific exception for better debugging
+            println("writeFileContent Error: ${e::class.simpleName} - ${e.message}")
+            throw e // Re-throw to be caught by the caller (performSave)
         }
     }
 }
