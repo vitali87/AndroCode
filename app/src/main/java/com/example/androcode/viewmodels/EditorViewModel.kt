@@ -23,7 +23,7 @@ import java.util.ArrayDeque
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.Job
 import androidx.compose.ui.text.AnnotatedString
-import com.wakaztahir.codeeditor.model.CodeLang
+import com.wakaztahir.codeeditor.highlight.model.CodeLang
 
 @HiltViewModel
 class EditorViewModel @Inject constructor(
@@ -66,7 +66,7 @@ class EditorViewModel @Inject constructor(
     val textFieldValue: StateFlow<TextFieldValue> = _textFieldValue.asStateFlow()
 
     // --- DETECTED LANGUAGE STATE --- //
-    private val _detectedLanguage = MutableStateFlow<CodeLang>(CodeLang.Default)
+    private val _detectedLanguage = MutableStateFlow<CodeLang>(CodeLang.SQL) // Using SQL as default since it has highlighting for most syntax
     val detectedLanguage: StateFlow<CodeLang> = _detectedLanguage.asStateFlow()
     // --- END DETECTED LANGUAGE STATE --- //
 
@@ -140,7 +140,7 @@ class EditorViewModel @Inject constructor(
                 _isModified.value = false
 
                 // Detect language and update state
-                detectLanguage(uri) // Just detect language
+                detectLanguage(uri)
 
                 // Initial TextFieldValue needs to be set AFTER language detection
                 // The UI will now be responsible for creating the initial AnnotatedString
@@ -159,7 +159,7 @@ class EditorViewModel @Inject constructor(
                  _loadedFileContent.value = null
                  _currentFileContent.value = null
                  _textFieldValue.value = TextFieldValue("")
-                 _detectedLanguage.value = CodeLang.Default
+                 _detectedLanguage.value = CodeLang.SQL
                  _isModified.value = false
                  _foldableRegions.value = emptyMap()
                  _foldedLines.value = emptySet()
@@ -194,9 +194,27 @@ class EditorViewModel @Inject constructor(
      */
     private fun detectLanguage(uri: Uri?) {
         val extension = uri?.lastPathSegment?.substringAfterLast('.', "")
-        _detectedLanguage.value = CodeLang.values().find { lang ->
-            lang.extensions.any { ext -> ext.equals(extension, ignoreCase = true) }
-        } ?: CodeLang.Default // Default if no match found
+        _detectedLanguage.value = when (extension?.lowercase()) {
+            "kt", "java" -> CodeLang.Java
+            "js" -> CodeLang.JavaScript
+            "py" -> CodeLang.Python
+            "css" -> CodeLang.CSS
+            "html", "xml" -> CodeLang.XML
+            "json" -> CodeLang.JSON
+            "md" -> CodeLang.Markdown
+            "c" -> CodeLang.C
+            "cpp", "cc" -> CodeLang.CPP
+            "cs" -> CodeLang.CSharp
+            "rb" -> CodeLang.Ruby
+            "go" -> CodeLang.Go
+            "rs" -> CodeLang.Rust
+            "sql" -> CodeLang.SQL
+            "sh" -> CodeLang.Bash
+            "dart" -> CodeLang.Dart
+            "scala" -> CodeLang.Scala
+            "yml", "yaml" -> CodeLang.YAML
+            else -> CodeLang.SQL // SQL as fallback since it handles general syntax well
+        }
         println("Detected language: ${_detectedLanguage.value} for extension: $extension")
     }
 
