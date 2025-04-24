@@ -19,6 +19,7 @@ import java.io.BufferedWriter
 import java.io.File
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -66,6 +67,8 @@ class TerminalViewModel @Inject constructor(
             return
         }
         
+        // Removed aggressive security modifications that were breaking functionality
+        
         viewModelScope.launch(ioDispatcher) {
             try {
                 val processBuilder = ProcessBuilder()
@@ -75,11 +78,15 @@ class TerminalViewModel @Inject constructor(
                 // Set working directory to a location we can access
                 processBuilder.directory(File(homeDir))
                 
-                // Set environment variables to help with permissions
+                // Set environment variables with safer approach that still provides good access
                 val env = processBuilder.environment()
                 env["HOME"] = homeDir
                 env["TMPDIR"] = context.cacheDir.absolutePath
                 env["PATH"] = System.getenv("PATH") ?: "/system/bin:/system/xbin:/system/sbin"
+                // Add additional paths that are accessible without breaking functionality
+                if (env["PATH"] != null) {
+                    env["PATH"] = env["PATH"] + ":/vendor/bin:/data/local/bin"
+                }
                 
                 process = processBuilder.start()
                 _isTerminalRunning.value = true
@@ -90,7 +97,8 @@ class TerminalViewModel @Inject constructor(
                 startProcessOutputReader()
                 
                 // Initial commands to help with navigation
-                sendCommand("cd $homeDir")
+                // Try to access the shared storage which should give access to most user files
+                sendCommand("cd /storage/emulated/0")
                 sendCommand("ls -la")
                 
                 // Start waiting for process exit
@@ -191,6 +199,8 @@ class TerminalViewModel @Inject constructor(
     fun clearTerminalOutput() {
         _terminalOutput.value = ""
     }
+    
+
     
     /**
      * Restarts the terminal after permissions have been granted.
