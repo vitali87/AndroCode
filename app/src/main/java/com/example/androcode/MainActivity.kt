@@ -85,6 +85,9 @@ import androidx.compose.ui.platform.LocalDensity // Import LocalDensity
 import android.graphics.Typeface // Required for Paint typeface
 import androidx.compose.runtime.derivedStateOf // For efficient calculation
 import androidx.compose.ui.draw.clipToBounds // Ensure gutter doesn't draw over border
+import androidx.lifecycle.lifecycleScope
+import com.example.androcode.permission.PermissionHelper
+import com.example.androcode.permission.WithStoragePermission
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch // <-- Import launch
 import androidx.hilt.navigation.compose.hiltViewModel // <-- Import hiltViewModel
@@ -153,6 +156,15 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Check for storage permissions at app start
+        if (!PermissionHelper.hasStoragePermissions(this)) {
+            lifecycleScope.launch {
+                // Request permissions when app starts
+                PermissionHelper.requestStoragePermissions(this@MainActivity)
+            }
+        }
+        
         setContent {
             AndroCodeTheme {
                 // Inject ViewModels here if needed at Activity level, or use hiltViewModel() lower down
@@ -243,22 +255,32 @@ class MainActivity : ComponentActivity() {
                                         contentDescription = "Find in File"
                                     )
                                 }
-                                // Add other actions like settings, etc. later
+                                                // Add other actions like settings, etc. later
                             }
                         )
                     }
                 ) { innerPadding ->
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding),
-                        color = MaterialTheme.colorScheme.background
+                    // Wrap the entire content with permission handler
+                    WithStoragePermission(
+                        onPermissionGranted = {
+                            // Permission is granted, nothing special to do
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Storage permission granted")
+                            }
+                        }
                     ) {
-                        // Pass the ViewModels down
-                        AndroCodeShell(
-                            fileExplorerViewModel = fileExplorerViewModel,
-                            editorViewModel = editorViewModel
-                        )
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding),
+                            color = MaterialTheme.colorScheme.background
+                        ) {
+                            // Pass the ViewModels down
+                            AndroCodeShell(
+                                fileExplorerViewModel = fileExplorerViewModel,
+                                editorViewModel = editorViewModel
+                            )
+                        }
                     }
                 }
             }
@@ -413,8 +435,10 @@ fun AndroCodeShell(
                 editorViewModel = editorViewModel
             )
             HorizontalDivider() // <-- Add divider here
-            TerminalView(
-                modifier = Modifier.weight(0.3f).fillMaxWidth()
+            // Use the terminal component with proper ViewModel injection
+            com.example.androcode.terminal.TerminalView(
+                modifier = Modifier.weight(0.3f).fillMaxWidth(),
+                viewModel = hiltViewModel()
             )
         }
     }
